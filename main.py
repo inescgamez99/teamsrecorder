@@ -119,17 +119,9 @@ def main():
 
         def on_call_ended():
             if recorder.is_recording:
-                from teams_detector import _teams_pids
-                # Reintentar varias veces para absorber transiciones momentáneas del proceso de Teams
-                # (worker restarts, screen-share transitions, etc.) sin parar la grabación.
-                for _attempt in range(3):
-                    if _teams_pids():
-                        log.info("on_call_ended ignorado — Teams sigue en ejecución")
-                        return
-                    time.sleep(0.5)
                 recorder.stop()
                 tray.set_recording(False)
-                log.info("Grabación detenida: Teams ya no está en ejecución")
+                log.info("Grabación detenida: llamada Teams finalizada")
 
         detector.on_call_started    = on_call_started
         detector.on_call_ended      = on_call_ended
