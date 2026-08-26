@@ -1,0 +1,17 @@
+psutil>=5.9.0
+pywin32>=311
+comtypes>=1.4.0
+pycaw>=20240210
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+pyaudiowpatch>=0.2.12
+faster-whisper>=1.0.0
+pystray>=0.19.5
+Pillow>=10.0.0
+anthropic>=0.25.0
+openai>=1.0.0
+python-dotenv>=1.0.0
+click>=8.1.0
+markdown>=3.5.0
+pywebview>=5.0

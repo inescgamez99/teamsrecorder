@@ -1,0 +1,40 @@
+# ── Datos personales y privados ──────────────────────────────────────────────
+recordings/
+minutes/
+inbox/
+.env
+settings.json
+projects.json
+tasks.json
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+.lock
+*.log
+*.context
+*.partial
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# ── Audio/modelos ─────────────────────────────────────────────────────────────
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.mkv
+models/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

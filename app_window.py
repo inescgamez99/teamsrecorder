@@ -1,0 +1,1282 @@
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from config import MINUTES_DIR, PROJECT_DIR, RECORDINGS_DIR, CLAUDE_BIN as _CLAUDE_BIN, clean_env as _clean_env_panel
+
+log = logging.getLogger(__name__)
+
+_PWSH = next(
+    (p for p in [r'C:\Program Files\PowerShell\7\pwsh.exe', shutil.which('pwsh')]
+     if p and Path(p).exists()),
+    'powershell'
+)
+_WEB_DIR = Path(__file__).parent / 'web'
+
+# Instancia global de la ventana (singleton)
+_window = None
+_window_lock = threading.Lock()
+
+# Estado de ejecuciones de acciones en el panel interno
+_action_runs: dict = {}
+
+# Estado de regeneración de minutas: path -> {pct, stage_key, done, error}
+_regen_runs: dict = {}
+
+# Watchers para acciones completadas desde terminal externo
+_terminal_watchers: dict = {}       # (path, index) -> True
+_terminal_completions: list = []    # [{path, index, title}] pendientes de notificar a JS
+
+_MAX_RUNS = 50  # límite de entradas en _action_runs y _regen_runs
+
+
+def _start_terminal_watcher(path: str, index: int, title: str = '') -> None:
+    """Polls the actions JSON every 3s until the action is marked executed=True."""
+    key = (path, index)
+    if key in _terminal_watchers:
+        return
+    _terminal_watchers[key] = True
+
+    def _watch():
+        import time
+        from pathlib import Path as _P
+        from actions_enricher import get_actions_path
+        ap = get_actions_path(_P(path))
+        deadline = time.time() + 7200  # stop after 2h max
+        while key in _terminal_watchers and time.time() < deadline:
+            time.sleep(3)
+            try:
+                data = json.loads(ap.read_text(encoding='utf-8'))
+                for a in data.get('actions', []):
+                    if a.get('index') == index and a.get('executed'):
+                        _terminal_completions.append({'path': path, 'index': index, 'title': title})
+                        _terminal_watchers.pop(key, None)
+                        return
+            except Exception:
+                pass
+        _terminal_watchers.pop(key, None)
+
+    threading.Thread(target=_watch, daemon=True, name=f'TermWatch-{index}').start()
+
+
+def _prune_runs(d: dict) -> None:
+    """Elimina las entradas completadas más antiguas cuando el dict supera el límite."""
+    if len(d) <= _MAX_RUNS:
+        return
+    done_keys = [k for k, v in d.items() if v.get('done')]
+    for k in done_keys[:len(d) - _MAX_RUNS]:
+        del d[k]
+
+
+def _cleanup_old_tmp_dirs() -> None:
+    """Limpia directorios temporales de sesiones anteriores (más de 24h)."""
+    try:
+        tmp_base = Path(tempfile.gettempdir())
+        cutoff = datetime.now() - timedelta(hours=24)
+        for d in tmp_base.iterdir():
+            if not d.is_dir():
+                continue
+            if datetime.fromtimestamp(d.stat().st_mtime) >= cutoff:
+                continue
+            if any((d / n).exists() for n in ('prompt.txt', 'run.ps1', 'chat.ps1', 'context.txt')):
+                shutil.rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
+
+
+class AppAPI:
+    """API Python expuesta a JavaScript via pywebview."""
+
+    def get_meetings(self) -> list:
+        """Lista todas las minutas agrupadas por fecha, con conteo de pendientes."""
+        meetings = []
+        for md in sorted(MINUTES_DIR.glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
+            meta = _parse_stem(md.stem)
+            actions_path = md.parent / f"{md.stem}_actions.json"
+            pending = 0
+            has_actions = False
+            project_id = ''
+            if actions_path.exists():
+                try:
+                    data = json.loads(actions_path.read_text(encoding='utf-8'))
+                    acts = data.get('actions', [])
+                    has_actions = bool(acts)
+                    pending = sum(1 for a in acts if not a.get('executed', False))
+                    project_id = data.get('project_id', '')
+                except Exception:
+                    pass
+            meetings.append({
+                'path':          str(md),
+                'title':         meta['title'],
+                'date':          meta['date'],
+                'time':          meta['time'],
+                'has_actions':   has_actions,
+                'pending_count': pending,
+                'project_id':    project_id,
+            })
+        return meetings
+
+    def get_minutes_html(self, path: str) -> str:
+        """Devuelve el cuerpo HTML de las minutas sin la sección de acciones pendientes."""
+        md_path = Path(path)
+        if not md_path.exists():
+            return '<em>Archivo no encontrado</em>'
+        try:
+            md_text = md_path.read_text(encoding='utf-8')
+            # Strip the pending-actions table section (it lives in Gestionar acciones)
+            md_text = re.sub(
+                r'\n##\s+(Acciones\s+Pendientes|Pending\s+Actions)\b.*?(?=\n##\s|\Z)',
+                '',
+                md_text,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            try:
+                import markdown
+                return markdown.markdown(
+                    md_text,
+                    extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'],
+                )
+            except ImportError:
+                return f'<pre style="white-space:pre-wrap">{md_text}</pre>'
+        except Exception as e:
+            return f'<em>Error: {e}</em>'
+
+    def get_actions(self, path: str) -> list:
+        """Devuelve las acciones de una minuta (del JSON enriquecido)."""
+        from actions_enricher import load_enriched
+        acts = load_enriched(Path(path))
+        return acts or []
+
+    def pick_folder(self) -> str:
+        """Abre el explorador de carpetas nativo de Windows. Devuelve la ruta o ''."""
+        try:
+            import webview
+            wins = webview.windows
+            if not wins:
+                return ''
+            result = wins[0].create_file_dialog(webview.FOLDER_DIALOG)
+            if result and len(result) > 0:
+                return result[0]
+        except Exception as e:
+            log.warning(f"pick_folder: {e}")
+        return ''
+
+    def pick_file(self, file_types: list = None) -> str:
+        """Abre el selector de archivos nativo de Windows. Devuelve la ruta o ''."""
+        try:
+            import webview
+            wins = webview.windows
+            if not wins:
+                return ''
+            kwargs = {}
+            if file_types:
+                kwargs['file_types'] = file_types
+            result = wins[0].create_file_dialog(webview.OPEN_DIALOG, **kwargs)
+            if result and len(result) > 0:
+                return result[0]
+        except Exception as e:
+            log.warning(f"pick_file: {e}")
+        return ''
+
+    def get_action_working_dir(self, path: str, index: int) -> str:
+        """Devuelve el directorio de trabajo sugerido para una acción."""
+        from actions_enricher import load_enriched
+        acts = load_enriched(Path(path))
+        action = next((a for a in acts if a['index'] == index), None) if acts else None
+        proj = action.get('project', '') if action else ''
+        if proj:
+            try:
+                projects_file = PROJECT_DIR / 'projects.json'
+                if projects_file.exists():
+                    pdata = json.loads(projects_file.read_text(encoding='utf-8'))
+                    found = next((p for p in pdata.get('projects', [])
+                                  if p['id'] == proj or p['name'] == proj), None)
+                    if found:
+                        d = found.get('output_dir') or found.get('directory', '')
+                        if d and Path(d).exists():
+                            return d
+            except Exception:
+                pass
+            candidate = PROJECT_DIR.parent / proj
+            if candidate.exists():
+                return str(candidate)
+        return str(PROJECT_DIR)
+
+    def get_action(self, path: str, index: int) -> dict:
+        """Returns a single action dict from the meeting actions JSON."""
+        from actions_enricher import get_actions_path
+        try:
+            ap = get_actions_path(Path(path))
+            if ap.exists():
+                data = json.loads(ap.read_text(encoding='utf-8'))
+                for a in data.get('actions', []):
+                    if a.get('index') == index:
+                        return a
+        except Exception:
+            pass
+        return {}
+
+    def execute_action(self, path: str, index: int) -> bool:
+        """Abre Windows Terminal con claude -p para ejecutar la acción."""
+        from actions_enricher import load_enriched, update_action_executed
+        acts = load_enriched(Path(path))
+        if not acts:
+            return False
+        action = next((a for a in acts if a['index'] == index), None)
+        if not action:
+            return False
+
+        prompt = action.get('prompt_enriched') or action.get('prompt_original', '')
+        proj = action.get('project', '')
+        proj_path = PROJECT_DIR
+        try:
+            if proj:
+                projects_file = PROJECT_DIR / 'projects.json'
+                if projects_file.exists():
+                    pdata = json.loads(projects_file.read_text(encoding='utf-8'))
+                    found = next((p for p in pdata.get('projects', []) if p['id'] == proj or p['name'] == proj), None)
+                    if found and found.get('output_dir'):
+                        proj_path = Path(found['output_dir'])
+                    elif proj:
+                        proj_path = PROJECT_DIR.parent / proj
+        except Exception:
+            proj_path = (PROJECT_DIR.parent / proj) if proj else PROJECT_DIR
+
+        tmp_dir    = Path(tempfile.mkdtemp())
+        tmp_prompt = tmp_dir / 'prompt.txt'
+        tmp_prompt.write_text(prompt, encoding='utf-8')
+
+        ps1 = tmp_dir / 'run.ps1'
+        ps1.write_text('\n'.join([
+            '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+            f'Set-Location "{proj_path}"',
+            f'Get-Content -Raw -Encoding UTF8 "{tmp_prompt}" | claude --verbose -p',
+            "Read-Host 'Presiona Enter para cerrar'",
+        ]), encoding='utf-8')
+
+        try:
+            subprocess.Popen([
+                'wt', '--window', '0', 'new-tab',
+                _PWSH, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(ps1)
+            ])
+        except FileNotFoundError:
+            subprocess.Popen([_PWSH, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(ps1)])
+
+        update_action_executed(Path(path), index, prompt)
+        return True
+
+    def update_prompt(self, path: str, index: int, prompt: str) -> bool:
+        from actions_enricher import update_action_prompt
+        try:
+            update_action_prompt(Path(path), index, prompt)
+            return True
+        except Exception:
+            return False
+
+    def mark_done(self, path: str, index: int) -> bool:
+        from actions_enricher import update_action_executed, load_enriched
+        acts = load_enriched(Path(path))
+        if not acts:
+            return False
+        action = next((a for a in acts if a['index'] == index), None)
+        if not action:
+            return False
+        prompt = action.get('prompt_enriched') or action.get('prompt_original', '')
+        try:
+            update_action_executed(Path(path), index, prompt)
+            return True
+        except Exception:
+            return False
+
+    def delete_action(self, path: str, index: int) -> bool:
+        """Elimina una acción del JSON de la reunión."""
+        from actions_enricher import get_actions_path
+        md_path = Path(path)
+        ap = get_actions_path(md_path)
+        if not ap.exists():
+            return False
+        try:
+            data = json.loads(ap.read_text(encoding='utf-8'))
+            data['actions'] = [a for a in data.get('actions', []) if a['index'] != index]
+            ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"delete_action: {e}")
+            return False
+
+    def move_to_panel(self, path: str, index: int) -> bool:
+        """Marca una acción como 'en panel' para que aparezca en el panel global."""
+        from actions_enricher import get_actions_path
+        md_path = Path(path)
+        ap = get_actions_path(md_path)
+        if not ap.exists():
+            return False
+        try:
+            data = json.loads(ap.read_text(encoding='utf-8'))
+            for a in data.get('actions', []):
+                if a['index'] == index:
+                    a['in_panel'] = True
+                    break
+            ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"move_to_panel: {e}")
+            return False
+
+    # ── Task board ────────────────────────────────────────────────────────────
+
+    def get_tasks(self) -> dict:
+        """Returns all tasks + projects for the task board. Runs migration on first call."""
+        from tasks_store import get_tasks as _get, migrate_panel_actions
+        migrate_panel_actions()
+        tasks = _get()
+        projects_file = PROJECT_DIR / 'projects.json'
+        projects = []
+        try:
+            if projects_file.exists():
+                pdata = json.loads(projects_file.read_text(encoding='utf-8'))
+                projects = pdata.get('projects', [])
+        except Exception:
+            pass
+        return {'projects': projects, 'tasks': tasks}
+
+    def create_task(self, project_id: str, title: str, parent_id: str = '',
+                    assignee: str = '', deadline: str = '', priority: str = '') -> dict:
+        from tasks_store import create_task as _create
+        return _create(
+            project_id=project_id,
+            title=title,
+            parent_id=parent_id or None,
+            assignee=assignee or None,
+            deadline=deadline or None,
+            priority=priority or None,
+            source='manual',
+        )
+
+    def update_task(self, task_id: str, fields: dict) -> bool:
+        from tasks_store import update_task as _update
+        return _update(task_id, fields)
+
+    def delete_task(self, task_id: str) -> bool:
+        from tasks_store import delete_task as _delete
+        return _delete(task_id)
+
+    def move_action_to_panel(self, path: str, index: int,
+                             project_id: str, parent_id: str = '') -> str:
+        """Creates a task linked to a meeting action. Returns new task id."""
+        from actions_enricher import get_actions_path
+        from tasks_store import create_task as _create
+        action = None
+        try:
+            ap = get_actions_path(Path(path))
+            if ap.exists():
+                adata = json.loads(ap.read_text(encoding='utf-8'))
+                for a in adata.get('actions', []):
+                    if a['index'] == index:
+                        action = a
+                        break
+        except Exception:
+            pass
+        if not action:
+            return ''
+        task = _create(
+            project_id=project_id or action.get('project') or 'none',
+            title=action.get('title', ''),
+            parent_id=parent_id or None,
+            status='done' if action.get('executed') else 'not_started',
+            assignee=action.get('assignee'),
+            deadline=action.get('deadline'),
+            source='meeting',
+            meeting_path=path,
+            meeting_action_index=index,
+            claude_executable=bool(action.get('claude_executable')),
+        )
+        # Mark in_panel on the source action
+        try:
+            ap = get_actions_path(Path(path))
+            adata = json.loads(ap.read_text(encoding='utf-8'))
+            for a in adata.get('actions', []):
+                if a['index'] == index:
+                    a['in_panel'] = True
+                    break
+            ap.write_text(json.dumps(adata, ensure_ascii=False, indent=2), encoding='utf-8')
+        except Exception as e:
+            log.warning(f"move_action_to_panel mark in_panel: {e}")
+        return task['id']
+
+    def enrich_actions(self, path: str) -> bool:
+        """Elimina el JSON de acciones de una minuta y relanza el enriquecimiento."""
+        from actions_enricher import enrich_and_save, get_actions_path
+        md_path = Path(path)
+        if not md_path.exists():
+            return False
+        ap = get_actions_path(md_path)
+        if ap.exists():
+            ap.unlink()
+        enrich_and_save(md_path, PROJECT_DIR.parent)
+        return True
+
+    def reenrich_all_meetings(self) -> int:
+        """Re-enriquece todas las minutas. Devuelve el número de minutas lanzadas."""
+        from actions_enricher import enrich_and_save, get_actions_path
+        count = 0
+        for md in sorted(MINUTES_DIR.glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
+            ap = get_actions_path(md)
+            if ap.exists():
+                ap.unlink()
+            enrich_and_save(md, PROJECT_DIR.parent)
+            count += 1
+        return count
+
+    def export_to_project(self, path: str) -> str:
+        """Exporta transcript+HTML+email a la carpeta del proyecto. Devuelve '' si ok, mensaje de error si falla."""
+        try:
+            from project_exporter import export_to_project_folder, get_meeting_project
+            md_path = Path(path)
+            project = get_meeting_project(md_path)
+            if not project:
+                return 'no_project'
+            proj_dir = (project.get('directory') or '').strip()
+            if not proj_dir:
+                return 'no_directory'
+            ok = export_to_project_folder(md_path)
+            return '' if ok else 'export_failed'
+        except Exception as e:
+            log.error(f"export_to_project: {e}")
+            return str(e)
+
+    def open_project_dir(self, path: str) -> bool:
+        try:
+            p = Path(path)
+            p.mkdir(parents=True, exist_ok=True)
+            subprocess.Popen(['explorer', str(p)])
+            return True
+        except Exception as e:
+            log.error(f"open_project_dir: {e}")
+            return False
+
+    def browse_project_folder(self) -> str:
+        """Opens native OS folder picker and returns selected path."""
+        import webview
+        if _window is None:
+            return ''
+        try:
+            result = _window.create_file_dialog(webview.FOLDER_DIALOG, allow_multiple=False)
+            if result:
+                return result[0] if isinstance(result, (list, tuple)) else str(result)
+        except Exception as e:
+            log.warning(f"browse_project_folder: {e}")
+        return ''
+
+    def get_projects(self) -> list:
+        """Returns list of projects from projects.json."""
+        p = PROJECT_DIR / 'projects.json'
+        if not p.exists():
+            return []
+        try:
+            data = json.loads(p.read_text(encoding='utf-8'))
+            return data.get('projects', [])
+        except Exception:
+            return []
+
+    def save_project(self, project: dict) -> bool:
+        """Create or update a project. project must have: name, description, stakeholders (list of emails). id is auto-generated from name if absent."""
+        import re as _re
+        p = PROJECT_DIR / 'projects.json'
+        try:
+            data = {'projects': []}
+            if p.exists():
+                data = json.loads(p.read_text(encoding='utf-8'))
+            projects = data.get('projects', [])
+            if not project.get('id'):
+                project['id'] = _re.sub(r'[^a-z0-9]+', '-', project.get('name', 'project').lower()).strip('-')
+                # ensure uniqueness
+                existing_ids = {pr['id'] for pr in projects}
+                base = project['id']
+                i = 2
+                while project['id'] in existing_ids:
+                    project['id'] = f"{base}-{i}"
+                    i += 1
+            # update if exists, else append
+            idx = next((i for i, pr in enumerate(projects) if pr['id'] == project['id']), None)
+            is_new = idx is None
+            if idx is not None:
+                projects[idx] = project
+            else:
+                projects.append(project)
+            data['projects'] = projects
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            if is_new:
+                self.detect_projects_for_all()
+            return True
+        except Exception as e:
+            log.error(f"save_project: {e}")
+            return False
+
+    def set_meeting_project(self, path: str, project_id: str) -> bool:
+        """Manually assign (or override) the project for a meeting."""
+        try:
+            from actions_enricher import set_meeting_project_id
+            return set_meeting_project_id(Path(path), project_id)
+        except Exception as e:
+            log.error(f"set_meeting_project: {e}")
+            return False
+
+    def detect_projects_for_all(self) -> None:
+        """Background: run Claude project detection for all unassigned meetings."""
+        import threading
+
+        def _run():
+            try:
+                from actions_enricher import detect_projects_for_all_meetings
+                results = detect_projects_for_all_meetings()
+                log.info(f"detect_projects_for_all done: {results}")
+            except Exception as e:
+                log.error(f"detect_projects_for_all: {e}", exc_info=True)
+
+        threading.Thread(target=_run, daemon=True, name='ProjectDetect').start()
+
+    def delete_project(self, project_id: str) -> bool:
+        """Delete a project by id."""
+        p = PROJECT_DIR / 'projects.json'
+        if not p.exists():
+            return False
+        try:
+            data = json.loads(p.read_text(encoding='utf-8'))
+            data['projects'] = [pr for pr in data.get('projects', []) if pr['id'] != project_id]
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"delete_project: {e}")
+            return False
+
+    def get_settings(self) -> dict:
+        try:
+            p = PROJECT_DIR / 'settings.json'
+            if p.exists():
+                return json.loads(p.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+        return {'language': 'es'}
+
+    def save_settings(self, settings: dict) -> bool:
+        try:
+            p = PROJECT_DIR / 'settings.json'
+            existing = {}
+            if p.exists():
+                existing = json.loads(p.read_text(encoding='utf-8'))
+            existing.update(settings)
+            p.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"save_settings: {e}")
+            return False
+
+    def open_minutes_in_claude(self, path: str, lang: str = 'es') -> bool:
+        """Abre Claude en modo interactivo con las minutas como contexto.
+        Claude arranca la conversación solo con un mensaje de bienvenida."""
+        md_path = Path(path)
+        if not md_path.exists():
+            return False
+
+        meta  = _parse_stem(md_path.stem)
+        title = meta['title']
+        date  = meta.get('date', '')
+
+        # Find the paired transcript (recordings/processed/ or recordings/)
+        transcript_content = ''
+        m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+        if m:
+            y, mo, d, hh, mm = m.groups()
+            stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+            for folder in ['recordings/processed', 'recordings']:
+                folder_path = PROJECT_DIR / folder
+                if not folder_path.exists():
+                    continue
+                candidates = list(folder_path.glob(f"{stem}*_transcript.txt"))
+                if candidates:
+                    try:
+                        transcript_content = candidates[0].read_text(encoding='utf-8')
+                    except Exception:
+                        pass
+                    break
+
+        # Fall back to meeting minutes if no transcript file exists
+        using_transcript = bool(transcript_content)
+        if not transcript_content:
+            try:
+                transcript_content = md_path.read_text(encoding='utf-8')
+            except Exception:
+                transcript_content = ''
+
+        if lang == 'en':
+            context_label = "TRANSCRIPT" if using_transcript else "MEETING NOTES"
+            context_note  = "" if using_transcript else "(transcript not found — using meeting notes as fallback)\n"
+            src_word      = "transcript" if using_transcript else "notes"
+            greeting_instruction = (
+                f"The {context_label.lower()} above is your background context — do NOT summarise or repeat it. "
+                f"Write only a single short sentence acknowledging you've read the {src_word} for '{title}' "
+                "and asking if there's any topic they'd like to explore further or any question they have. "
+                "Nothing else. No bullet points, no summary, no headers."
+            )
+            lang_instruction = "Respond always in English throughout the conversation."
+        else:
+            context_label = "TRANSCRIPCIÓN" if using_transcript else "NOTAS DE LA REUNIÓN"
+            context_note  = "" if using_transcript else "(transcripción no encontrada — usando las notas como alternativa)\n"
+            src_word      = "transcripción" if using_transcript else "notas"
+            greeting_instruction = (
+                f"La {src_word} anterior es tu contexto — NO la resumas ni la repitas. "
+                f"Escribe únicamente una frase corta diciendo que ya has leído la {src_word} de '{title}' "
+                "y preguntando si hay algún tema en el que quiera profundizar o alguna duda. "
+                "Nada más. Sin bullets, sin resumen, sin cabeceras."
+            )
+            lang_instruction = "Responde siempre en español durante toda la conversación."
+
+        # Escribir contexto (transcripción) a archivo separado para --append-system-prompt-file
+        # Esto evita el límite de longitud de línea de comandos de Windows (~32KB)
+        context_content = '\n'.join([
+            lang_instruction,
+            "",
+            f"## {context_label} — {title} ({date})",
+            context_note + transcript_content,
+        ])
+        tmp_dir     = Path(tempfile.mkdtemp())
+        tmp_context = tmp_dir / 'context.txt'
+        tmp_context.write_text(context_content, encoding='utf-8')
+
+        ps1 = tmp_dir / 'chat.ps1'
+        # Greeting goes to a separate file to avoid PS quoting/encoding issues.
+        # PS1 written with UTF-8 BOM so PowerShell 5.1 reads it as UTF-8
+        # (without BOM it falls back to ANSI and the em-dash in the greeting
+        # gets decoded as a curly-quote 0x94 which PS treats as a string terminator).
+        tmp_greeting = tmp_dir / 'greeting.txt'
+        tmp_greeting.write_text(greeting_instruction, encoding='utf-8-sig')
+        ps1_lines = [
+            '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+            f'Set-Location "{MINUTES_DIR}"',
+            f'$g = (Get-Content -Raw -Encoding UTF8 "{tmp_greeting}").Trim()',
+            f'claude --append-system-prompt-file "{tmp_context}" "$g"',
+        ]
+        ps1.write_bytes(('\n'.join(ps1_lines)).encode('utf-8-sig'))
+
+        try:
+            subprocess.Popen([
+                'wt', '--window', '0', 'new-tab',
+                _PWSH, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(ps1)
+            ])
+        except FileNotFoundError:
+            subprocess.Popen([_PWSH, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(ps1)])
+
+        return True
+
+    def open_html(self, path: str) -> bool:
+        """Abre el HTML exportado de las minutas en el navegador predeterminado."""
+        import webbrowser
+        md_path = Path(path)
+        html_path = md_path.with_suffix('.html')
+        if not html_path.exists():
+            from html_exporter import export_to_html
+            meta = _parse_stem(md_path.stem)
+            export_to_html(md_path, meta['title'], open_browser=False)
+        if html_path.exists():
+            webbrowser.open(html_path.as_uri())
+            return True
+        return False
+
+    def send_email(self, path: str) -> bool:
+        from outlook_sender import send_minutes_email
+        from html_exporter import export_to_html
+        md_path   = Path(path)
+        html_path = md_path.with_suffix('.html')
+        if not html_path.exists():
+            export_to_html(md_path, md_path.stem, open_browser=False)
+        meta = _parse_stem(md_path.stem)
+        # Look up default_recipients from the meeting's project
+        participants = []
+        try:
+            from actions_enricher import get_actions_path
+            ap = get_actions_path(md_path)
+            if ap.exists():
+                adata = json.loads(ap.read_text(encoding='utf-8'))
+                project_id = adata.get('project_id', '')
+                if project_id and project_id != 'none':
+                    projects_file = PROJECT_DIR / 'projects.json'
+                    if projects_file.exists():
+                        pdata = json.loads(projects_file.read_text(encoding='utf-8'))
+                        proj = next((p for p in pdata.get('projects', []) if p['id'] == project_id), None)
+                        if proj:
+                            stakeholders = proj.get('stakeholders', [])
+                            participants = [{'email': e, 'name': e} for e in stakeholders if e.strip()]
+        except Exception:
+            pass
+        lang = _detect_notes_language(md_path)
+        try:
+            send_minutes_email(
+                minutes_path=md_path,
+                html_path=html_path,
+                title=meta['title'],
+                participants=participants,
+                language=lang,
+            )
+            return True
+        except Exception as e:
+            log.error(f"send_email: {e}")
+            return False
+
+    def regenerate_minutes(self, path: str, extra_context: str, lang: str = '') -> bool:
+        """Regenera las minutas de una reunión usando el transcript original y contexto adicional."""
+        md_path = Path(path)
+        if not md_path.exists():
+            return False
+
+        m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+        if not m:
+            return False
+
+        y, mo, d, hh, mm = m.groups()
+        stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+
+        transcript_content = ''
+
+        # 1. Copia en minutes/ (guardada desde la v2 del pipeline)
+        minutes_transcript = md_path.with_name(md_path.stem + '_transcript.txt')
+        if minutes_transcript.exists():
+            try:
+                transcript_content = minutes_transcript.read_text(encoding='utf-8')
+            except Exception as e:
+                log.warning(f"regenerate_minutes: lectura minutes transcript fallida: {e}")
+
+        # 2. Fallback: recordings/processed y recordings (formato YYYY-MM-DD_HH-MM)
+        if not transcript_content:
+            for folder_path in [RECORDINGS_DIR / 'processed', RECORDINGS_DIR]:
+                if not folder_path.exists():
+                    continue
+                candidates = list(folder_path.glob(f"{stem}*_transcript.txt"))
+                if candidates:
+                    try:
+                        transcript_content = candidates[0].read_text(encoding='utf-8')
+                    except Exception as e:
+                        log.warning(f"regenerate_minutes: read failed: {e}")
+                    break
+
+        if not transcript_content:
+            log.warning(f"regenerate_minutes: no transcript found for {md_path.stem}")
+            return False
+
+        if not lang:
+            lang = _detect_notes_language(md_path)
+
+        # Synthetic path that carries the YYYY-MM-DD_HH-MM stem for date extraction
+        synthetic_wav = RECORDINGS_DIR / f"{stem}_reunion.wav"
+
+        _prune_runs(_regen_runs)
+        _regen_runs[path] = {'pct': 5, 'stage': 'transcript_ok', 'done': False, 'error': ''}
+
+        def _run():
+            import time as _time
+            from minutes_generator import generate_minutes, extract_title_from_minutes, save_minutes
+            from html_exporter import export_to_html
+            from actions_enricher import enrich_and_save, get_actions_path
+
+            state = _regen_runs[path]
+
+            # Ticker: incrementa el % lentamente durante la llamada a Claude (15% → 80%)
+            ticker_active = [True]
+            def _tick():
+                while ticker_active[0] and state['pct'] < 80:
+                    _time.sleep(3)
+                    if ticker_active[0] and state['pct'] < 80:
+                        state['pct'] = min(80, state['pct'] + 1)
+            threading.Thread(target=_tick, daemon=True).start()
+
+            try:
+                state['pct'] = 15
+                state['stage'] = 'generating'
+                raw = generate_minutes(transcript_content, synthetic_wav,
+                                       extra_context=extra_context.strip() or None,
+                                       language=lang)
+                ticker_active[0] = False
+
+                if not raw:
+                    state['error'] = 'Claude returned empty'
+                    state['done'] = True
+                    log.error("regenerate_minutes: Claude devolvió vacío")
+                    return
+
+                state['pct'] = 85
+                state['stage'] = 'saving'
+                title, content = extract_title_from_minutes(raw)
+                save_minutes(content, md_path)
+
+                state['pct'] = 92
+                state['stage'] = 'html'
+                try:
+                    export_to_html(md_path, title, open_browser=False)
+                except Exception as e:
+                    log.warning(f"regenerate HTML: {e}")
+
+                state['pct'] = 97
+                state['stage'] = 'actions'
+                ap = get_actions_path(md_path)
+                if ap.exists():
+                    ap.unlink()
+                enrich_and_save(md_path, PROJECT_DIR.parent)
+
+                state['pct'] = 100
+                state['stage'] = 'done'
+                state['done'] = True
+
+            except Exception as e:
+                ticker_active[0] = False
+                state['error'] = str(e)
+                state['done'] = True
+                log.error(f"regenerate_minutes thread: {e}")
+
+        threading.Thread(target=_run, daemon=True, name='RegenerateMinutes').start()
+        return True
+
+    def get_regen_status(self, path: str) -> dict:
+        """Devuelve el progreso de una regeneración en curso: {pct, stage, done, error}."""
+        return _regen_runs.get(path, {'pct': 0, 'stage': '', 'done': False, 'error': ''})
+
+    def execute_action_panel(self, path: str, index: int,
+                             working_dir: str = '', prompt_override: str = '') -> str:
+        """Ejecuta una acción con Claude en el panel interno. Devuelve run_id para polling."""
+        if not _CLAUDE_BIN:
+            return ''  # Sin claude en PATH: JS hace fallback a terminal
+        from actions_enricher import load_enriched, update_action_executed
+        acts = load_enriched(Path(path))
+        if not acts:
+            return ''
+        action = next((a for a in acts if a['index'] == index), None)
+        if not action:
+            return ''
+
+        prompt = prompt_override.strip() or action.get('prompt_enriched') or action.get('prompt_original', '')
+        if not prompt.strip():
+            return ''
+
+        if working_dir.strip():
+            wd = Path(working_dir.strip())
+            if wd.is_file():
+                proj_path = wd.parent
+            elif wd.is_dir():
+                proj_path = wd
+            else:
+                proj_path = PROJECT_DIR
+        else:
+            proj_path = PROJECT_DIR
+            proj = action.get('project', '')
+            if proj:
+                try:
+                    projects_file = PROJECT_DIR / 'projects.json'
+                    if projects_file.exists():
+                        pdata = json.loads(projects_file.read_text(encoding='utf-8'))
+                        found = next((p for p in pdata.get('projects', []) if p['id'] == proj or p['name'] == proj), None)
+                        if found and found.get('output_dir'):
+                            proj_path = Path(found['output_dir'])
+                except Exception:
+                    pass
+
+        run_id = uuid.uuid4().hex[:8]
+        _prune_runs(_action_runs)
+        _action_runs[run_id] = {
+            'output': '',
+            'done': False,
+            'error': '',
+            'title': action.get('title', ''),
+            'prompt': prompt,
+            'proj_path': str(proj_path),
+            'path': path,
+            'index': index,
+        }
+
+        def _run():
+            try:
+                env = _clean_env_panel()
+                proc = subprocess.Popen(
+                    [_CLAUDE_BIN, '-p', '--dangerously-skip-permissions'],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8',
+                    cwd=str(proj_path),
+                    env=env,
+                    creationflags=0x08000000 if os.name == 'nt' else 0,
+                )
+                proc.stdin.write(prompt)
+                proc.stdin.close()
+                try:
+                    out, err = proc.communicate(timeout=600)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    _action_runs[run_id]['output'] = '[TIMEOUT: la acción tardó más de 10 minutos]'
+                    _action_runs[run_id]['done'] = True
+                    _action_runs[run_id]['error'] = 'timeout'
+                    return
+                _action_runs[run_id]['output'] = out
+                if err.strip():
+                    _action_runs[run_id]['output'] += f'\n[stderr]: {err.strip()}'
+                _action_runs[run_id]['done'] = True
+                if proc.returncode == 0:
+                    update_action_executed(Path(path), index, prompt)
+                else:
+                    _action_runs[run_id]['error'] = f"Exit {proc.returncode}"
+            except Exception as e:
+                _action_runs[run_id]['output'] += f'\n[ERROR: {e}]'
+                _action_runs[run_id]['done'] = True
+                _action_runs[run_id]['error'] = str(e)
+
+        threading.Thread(target=_run, daemon=True, name=f'ActionPanel-{run_id}').start()
+        return run_id
+
+    def get_action_run_status(self, run_id: str) -> dict:
+        """Devuelve el estado actual de una ejecución en el panel."""
+        r = _action_runs.get(run_id)
+        if not r:
+            return {'output': '', 'done': True, 'error': 'not found', 'title': '', 'proj_path': '', 'path': '', 'index': -1}
+        return {
+            'output': r['output'],
+            'done': r['done'],
+            'error': r['error'],
+            'title': r['title'],
+            'proj_path': r.get('proj_path', ''),
+            'path': r.get('path', ''),
+            'index': r.get('index', -1),
+        }
+
+    def continue_in_terminal(self, path: str, index: int, proj_path: str = '', run_output: str = '') -> None:
+        """Opens a terminal in the target file's directory with action context + Claude ready."""
+        import subprocess as _sp
+        import json as _json
+        import re as _re
+        import tempfile as _tmp
+        from pathlib import Path as _P
+        from actions_enricher import get_actions_path
+        from config import CLAUDE_BIN as _cb
+
+        # Load action data from the meeting's actions JSON
+        action = None
+        try:
+            ap = get_actions_path(_P(path))
+            if ap.exists():
+                data = _json.loads(ap.read_text(encoding='utf-8'))
+                for a in data.get('actions', []):
+                    if a.get('index') == index:
+                        action = a
+                        break
+        except Exception:
+            pass
+
+        # Find the target file and its directory from the action prompt
+        working_dir = None
+        target_file = None
+        if action:
+            prompt = action.get('prompt_enriched') or action.get('prompt_original') or ''
+            m = _re.search(r'(?:Archivo|File):\s*([A-Za-z]:\\.+?)(?:\n|$)', prompt)
+            if m:
+                fp = _P(m.group(1).strip())
+                target_file = str(fp)
+                if fp.exists():
+                    working_dir = str(fp.parent)
+                elif fp.parent.exists():
+                    working_dir = str(fp.parent)
+
+        if not working_dir:
+            working_dir = proj_path if (proj_path and _P(proj_path).exists()) else str(_P(path).parent)
+
+        # Write a context summary to a temp file shown on terminal open
+        lines = ['=' * 60 + '\n', 'ACTION CONTEXT\n', '=' * 60 + '\n']
+        if action:
+            lines.append(f"Task    : {action.get('title', '')}\n")
+            if target_file:
+                lines.append(f"File    : {target_file}\n")
+            lines.append(f"Type    : {action.get('type', '')}\n")
+            prompt_text = action.get('prompt_executed') or action.get('prompt_enriched') or ''
+            if prompt_text:
+                lines.append(f"\nInstruction:\n{prompt_text[:800]}\n")
+        if run_output and run_output.strip():
+            lines.append('\n' + '=' * 60 + '\n')
+            lines.append('CLAUDE ASKED:\n')
+            lines.append('=' * 60 + '\n')
+            lines.append(run_output.strip()[:4000] + '\n')
+            lines.append('=' * 60 + '\n')
+            lines.append('\n>> Responde a continuacion. Claude retomara la conversacion.\n')
+        lines.append('\n' + '=' * 60 + '\n')
+        ctx_file = _P(_tmp.gettempdir()) / f'tr_action_{index}.txt'
+        ctx_file.write_text(''.join(lines), encoding='utf-8')
+
+        # Open fresh claude session; copy context to clipboard so user can paste it
+        claude_cmd = f'"{_cb}"' if _cb else 'claude'
+        ctx_path = str(ctx_file).replace("'", "''")
+        clip_cmd = f"powershell -NoProfile -Command \"Get-Content -Path '{ctx_path}' | Set-Clipboard\""
+        banner = 'echo. && echo [Contexto copiado al portapapeles. Pega con Ctrl+V en Claude y responde.] && echo.'
+        inner = f'type "{ctx_file}" && {clip_cmd} && {banner} && {claude_cmd}'
+
+        CREATE_NEW_CONSOLE = 0x00000010
+        try:
+            _sp.Popen(['wt.exe', '-d', working_dir, '--', 'cmd.exe', '/K', inner],
+                      creationflags=CREATE_NEW_CONSOLE)
+        except FileNotFoundError:
+            _sp.Popen(['cmd.exe', '/K', f'cd /d "{working_dir}" && {inner}'],
+                      creationflags=CREATE_NEW_CONSOLE)
+
+        # Watch for completion in the terminal so the UI can update automatically
+        _start_terminal_watcher(path, index, action.get('title', '') if action else '')
+
+    def get_terminal_completions(self) -> list:
+        """Returns and clears actions marked as executed from an external terminal session."""
+        result = list(_terminal_completions)
+        _terminal_completions.clear()
+        return result
+
+    def send_action_followup(self, run_id: str, message: str) -> str:
+        """Re-ejecuta con contexto adicional. Devuelve nuevo run_id."""
+        if not _CLAUDE_BIN:
+            return ''
+        prev = _action_runs.get(run_id)
+        if not prev:
+            return ''
+
+        combined = (
+            prev['prompt']
+            + '\n\n---\nRespuesta anterior de Claude:\n'
+            + prev['output']
+            + '\n\n---\nContexto adicional / pregunta del usuario:\n'
+            + message.strip()
+        )
+
+        new_id = uuid.uuid4().hex[:8]
+        _prune_runs(_action_runs)
+        _action_runs[new_id] = {
+            'output': '',
+            'done': False,
+            'error': '',
+            'title': prev['title'] + ' (seguimiento)',
+            'prompt': combined,
+            'proj_path': prev['proj_path'],
+            'path': prev['path'],
+            'index': prev['index'],
+        }
+
+        def _run():
+            try:
+                env = _clean_env_panel()
+                proc = subprocess.Popen(
+                    [_CLAUDE_BIN, '-p', '--dangerously-skip-permissions'],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8',
+                    cwd=prev['proj_path'],
+                    env=env,
+                    creationflags=0x08000000 if os.name == 'nt' else 0,
+                )
+                proc.stdin.write(combined)
+                proc.stdin.close()
+                try:
+                    out, err = proc.communicate(timeout=600)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    _action_runs[new_id]['output'] = '[TIMEOUT: la acción tardó más de 10 minutos]'
+                    _action_runs[new_id]['done'] = True
+                    _action_runs[new_id]['error'] = 'timeout'
+                    return
+                _action_runs[new_id]['output'] = out
+                if err.strip():
+                    _action_runs[new_id]['output'] += f'\n[stderr]: {err.strip()}'
+                _action_runs[new_id]['done'] = True
+                if proc.returncode != 0:
+                    _action_runs[new_id]['error'] = f"Exit {proc.returncode}"
+            except Exception as e:
+                _action_runs[new_id]['output'] += f'\n[ERROR: {e}]'
+                _action_runs[new_id]['done'] = True
+                _action_runs[new_id]['error'] = str(e)
+
+        threading.Thread(target=_run, daemon=True, name=f'ActionPanel-{new_id}').start()
+        return new_id
+
+    def search(self, query: str) -> list:
+        """Busca query en todas las minutas y devuelve la lista filtrada."""
+        q = query.lower().strip()
+        if not q:
+            return self.get_meetings()
+        results = []
+        for md in sorted(MINUTES_DIR.glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                content = md.read_text(encoding='utf-8').lower()
+                if q in content or q in md.stem.lower():
+                    meta = _parse_stem(md.stem)
+                    actions_path = md.parent / f"{md.stem}_actions.json"
+                    pending = 0
+                    has_actions = False
+                    project_id = ''
+                    if actions_path.exists():
+                        try:
+                            data = json.loads(actions_path.read_text(encoding='utf-8'))
+                            acts = data.get('actions', [])
+                            has_actions = bool(acts)
+                            pending = sum(1 for a in acts if not a.get('executed', False))
+                            project_id = data.get('project_id', '')
+                        except Exception:
+                            pass
+                    results.append({
+                        'path':          str(md),
+                        'title':         meta['title'],
+                        'date':          meta['date'],
+                        'time':          meta['time'],
+                        'has_actions':   has_actions,
+                        'pending_count': pending,
+                        'project_id':    project_id,
+                    })
+            except Exception:
+                pass
+        return results
+
+    def get_all_pending_actions(self) -> list:
+        """Devuelve las acciones marcadas explícitamente con in_panel=True."""
+        result = []
+        for actions_json in MINUTES_DIR.glob('*_actions.json'):
+            try:
+                data = json.loads(actions_json.read_text(encoding='utf-8'))
+                minutes_path = data.get('minutes', '')
+                md = Path(minutes_path) if minutes_path else actions_json.with_suffix('.md').with_name(
+                    actions_json.stem.replace('_actions', '') + '.md'
+                )
+                meta = _parse_stem(md.stem) if md.exists() else {'title': actions_json.stem, 'date': '', 'time': ''}
+                meeting_project_id = data.get('project_id')
+                for a in data.get('actions', []):
+                    if not a.get('in_panel', False):
+                        continue
+                    claude_executable = a.get('claude_executable', a.get('type') not in ('human',))
+                    result.append({
+                        **a,
+                        'claude_executable':  claude_executable,
+                        'minutes_path':       str(md),
+                        'minutes_path_key':   re.sub(r'[^a-z0-9]', '_', str(md).lower())[:40],
+                        'meeting_title':      meta['title'],
+                        'meeting_date':       meta['date'],
+                        'created_at':         a.get('created_at') or meta['date'],
+                        'meeting_project_id': meeting_project_id or 'none',
+                    })
+            except Exception:
+                pass
+        result.sort(key=lambda a: (a.get('executed', False), a.get('meeting_date', '')))
+        return result
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _detect_notes_language(md_path: Path) -> str:
+    """Returns 'es' or 'en' by inspecting the first 600 chars of a minutes file."""
+    try:
+        head = md_path.read_text(encoding='utf-8', errors='ignore')[:600].lower()
+        if any(kw in head for kw in ('minuta', 'reunión', 'asistentes', 'resumen ejecutivo')):
+            return 'es'
+        if any(kw in head for kw in ('meeting minutes', 'attendees', 'executive summary')):
+            return 'en'
+    except Exception:
+        pass
+    return 'es'
+
+
+def _parse_stem(stem: str) -> dict:
+    """Extrae título, fecha y hora del stem de la minuta."""
+    m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})_(.*)', stem)
+    if m:
+        y, mo, d, hh, mm, slug = m.groups()
+        title = slug.replace('_', ' ').strip()
+        return {
+            'title': title or stem,
+            'date':  f"{y}-{mo}-{d}",
+            'time':  f"{hh}:{mm}",
+        }
+    return {'title': stem, 'date': '', 'time': ''}
+
+
+# ── Ventana ───────────────────────────────────────────────────────────────────
+
+def open_app(initial_path: str = None):
+    """
+    Lanza la ventana como proceso separado (pywebview necesita el hilo principal,
+    que ya está ocupado por pystray).
+    """
+    import sys
+    args = [sys.executable, str(Path(__file__).resolve())]
+    if initial_path:
+        args.append(initial_path)
+    subprocess.Popen(args, creationflags=0x08000000 if os.name == 'nt' else 0)
+
+
+def _set_taskbar_icon(title: str, icon_path: str) -> None:
+    """Envía WM_SETICON al HWND para que el icono aparezca en la taskbar de Windows."""
+    if os.name != 'nt':
+        return
+    try:
+        import ctypes
+        hwnd = ctypes.windll.user32.FindWindowW(None, title)
+        if not hwnd:
+            return
+        # IMAGE_ICON=1, LR_LOADFROMFILE=0x10, LR_DEFAULTSIZE=0x40
+        # LR_DEFAULTSIZE lets Windows pick SM_CXICON (32px) — loads our pre-optimised 32px frame directly
+        icon = ctypes.windll.user32.LoadImageW(None, icon_path, 1, 0, 0, 0x10 | 0x40)
+        if icon:
+            ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, icon)  # ICON_BIG  (taskbar)
+            ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, icon)  # ICON_SMALL (title bar)
+    except Exception as e:
+        log.warning(f"_set_taskbar_icon: {e}")
+
+
+def _run_window(initial_path: str = None):
+    """Punto de entrada cuando se ejecuta como proceso independiente."""
+    global _window
+    import webview
+    _cleanup_old_tmp_dirs()
+
+    # Desligar el proceso de python.exe para que la taskbar muestre el icono propio
+    if os.name == 'nt':
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('TeamsRecorder.App')
+        except Exception:
+            pass
+
+    api = AppAPI()
+    _icon = Path(__file__).parent / 'call_notes_app_icon.ico'
+
+    win = webview.create_window(
+        'TeamsRecorder',
+        url=str(_WEB_DIR / 'index.html'),
+        js_api=api,
+        width=1140,
+        height=780,
+        min_size=(800, 600),
+        maximized=True,
+        text_select=True,
+    )
+    _window = win
+
+    def on_ready():
+        if _icon.exists():
+            _set_taskbar_icon('TeamsRecorder', str(_icon))
+        if initial_path:
+            win.evaluate_js(f"if(typeof openMeeting==='function') openMeeting({json.dumps(initial_path)})")
+
+    win.events.loaded += on_ready
+    webview.start(icon=str(_icon) if _icon.exists() else None, debug=False)
+
+
+if __name__ == '__main__':
+    import sys
+    _initial = sys.argv[1] if len(sys.argv) > 1 else None
+    _run_window(_initial)
