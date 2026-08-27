@@ -224,7 +224,7 @@ Meeting content (excerpt):
 {content}
 
 Which project does this meeting belong to? Consider the title, content, people mentioned, and topics.
-Return ONLY the project id from the list above (e.g. "gsk-npi"), or "none" if no project matches clearly.
+Return ONLY the project id from the list above (e.g. "my-project"), or "none" if no project matches clearly.
 No explanation, just the id or "none"."""
 
     try:

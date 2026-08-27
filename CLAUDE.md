@@ -82,7 +82,7 @@ teams_detector.py  ──call detected──►  tray_app.py (pipeline queue)
 ## Key Architecture Decisions
 
 ### Claude CLI Bridge
-Minutes generation and action enrichment both call `claude -p` as a subprocess (not the SDK). The binary is expected in PATH or at `C:\Users\ines.campos\.local\bin\claude.exe`. Calls use cleaned environment (no API key forwarded). If `claude` is missing, the feature degrades gracefully.
+Minutes generation and action enrichment both call `claude -p` as a subprocess (not the SDK). The binary is expected in PATH. Calls use cleaned environment (no API key forwarded). If `claude` is missing, the feature degrades gracefully.
 
 ### Dual Audio Recording
 `audio_recorder.py` records two streams concurrently:

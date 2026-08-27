@@ -1,6 +1,6 @@
 ---
 name: teamsrecorder
-description: Instala o actualiza TeamsRecorder en Windows. TeamsRecorder detecta llamadas de Microsoft Teams automáticamente, graba el audio y genera minutas estructuradas con IA (Whisper + Claude). Úsalo la primera vez para instalar, o cuando Inés publique una actualización.
+description: Instala o actualiza TeamsRecorder en Windows. TeamsRecorder detecta llamadas de Microsoft Teams automáticamente, graba el audio y genera minutas estructuradas con IA (Whisper + Claude). Úsalo la primera vez para instalar, o cuando el administrador publique una actualización.
 ---
 
 # TeamsRecorder — Instalación y actualización

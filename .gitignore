@@ -12,6 +12,14 @@ tasks.json
 *.log
 *.context
 *.partial
+startup_error.txt
+
+# ── Scripts y documentos excluidos por privacidad ────────────────────────────
+extract_gsk_content.py
+find_jsk_file.py
+inspect_gsk_structure.py
+insert_exec_summary.py
+PRESENTACION_LEADERS.md
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
