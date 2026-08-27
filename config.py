@@ -78,9 +78,11 @@ def get_ui_language() -> str:
 
 
 def clean_env() -> dict:
-    """Entorno limpio para subprocesos: elimina variables sensibles de Claude/Anthropic."""
+    """Entorno limpio para subprocesos: elimina tokens de sesión de Anthropic/MCP
+    pero preserva variables de configuración de Claude Code (ej. CLAUDE_CODE_GIT_BASH_PATH)
+    que el subproceso 'claude -p' necesita para funcionar en Windows."""
     env = os.environ.copy()
     for key in list(env.keys()):
-        if key.startswith(('CLAUDE', 'MCP_', 'ANTHROPIC_')):
+        if key.startswith(('ANTHROPIC_', 'MCP_')):
             del env[key]
     return env

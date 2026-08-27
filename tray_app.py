@@ -12,7 +12,7 @@ _STR = {
     'es': dict(
         record_now='Grabar ahora', stop='Parar grabacion',
         add_context='Añadir contexto a grabacion',
-        view_minutes='Ver minutas y acciones',
+        view_minutes='Abrir la aplicacion',
         quit='Salir',
         recordings_queued='{n} grabaciones en cola',
         recordings_pending='{n} grabacion(es) pendiente(s) de procesar',
@@ -22,7 +22,7 @@ _STR = {
     'en': dict(
         record_now='Record now', stop='Stop recording',
         add_context='Add context to recording',
-        view_minutes='View minutes and actions',
+        view_minutes='Open the app',
         quit='Quit',
         recordings_queued='{n} recordings in queue',
         recordings_pending='{n} recording(s) pending processing',
@@ -56,6 +56,7 @@ class TrayApp:
         self._recording_start: float | None = None
         self._recording_path: Path | None = None
         self._ticker_stop = threading.Event()
+        self._processing_msg: str = ''
 
         threading.Thread(target=self._pipeline_loop, daemon=True, name='PipelineWorker').start()
         threading.Thread(target=self._recover_pending, daemon=True, name='PipelineRecovery').start()
@@ -93,13 +94,27 @@ class TrayApp:
             self._recording_path = None
             self._ticker_stop.set()
             self._recording_start = None
-            self._set_icon(_ICON_IDLE, 'TeamsRecorder')
+            # Si aún hay procesamiento en curso, mostrar ese estado; si no, idle
+            if self._processing_msg:
+                self._set_icon(_ICON_PROCESSING, f'TeamsRecorder - {self._processing_msg}')
+            else:
+                self._set_icon(_ICON_IDLE, 'TeamsRecorder')
+        # Forzar a pystray a reevaluar lambdas del menú (título "Parar/Grabar",
+        # visibilidad de "Añadir contexto") de forma inmediata.
+        try:
+            if self._icon:
+                self._icon.update_menu()
+        except Exception:
+            pass
 
     def set_processing(self, msg: str = ''):
-        if msg:
-            self._set_icon(_ICON_PROCESSING, f'TeamsRecorder - {msg}')
-        else:
-            self._set_icon(_ICON_IDLE, 'TeamsRecorder')
+        self._processing_msg = msg
+        if not self._recording_start:
+            # No hay grabación activa: actualizar ícono directamente
+            if msg:
+                self._set_icon(_ICON_PROCESSING, f'TeamsRecorder - {msg}')
+            else:
+                self._set_icon(_ICON_IDLE, 'TeamsRecorder')
 
     def _set_icon(self, img, tooltip: str):
         try:
@@ -114,7 +129,15 @@ class TrayApp:
             if self._recording_start:
                 elapsed = int(time.time() - self._recording_start)
                 m, s = divmod(elapsed, 60)
-                self._set_icon(_ICON_RECORDING, f'TeamsRecorder - Recording {m:02d}:{s:02d}')
+                rec_str = f'Recording {m:02d}:{s:02d}'
+                proc = self._processing_msg
+                tooltip = f'TeamsRecorder - {rec_str}' + (f' | {proc}' if proc else '')
+                # Solo actualizar el título (el ícono ya es el rojo correcto)
+                try:
+                    if self._icon:
+                        self._icon.title = tooltip
+                except Exception:
+                    pass
 
     def _on_recording_done(self, wav_path: Path):
         self._pipeline_queue.put(wav_path)

@@ -100,14 +100,16 @@ class TeamsCallDetector:
     def __init__(self, poll_interval=TEAMS_POLL_INTERVAL, required_confirmations=TEAMS_REQUIRED_CONFIRMATIONS):
         self._poll = poll_interval
         self._required          = required_confirmations              # polls para detectar inicio (2 = 6s)
-        self._required_end      = max(required_confirmations * 20, 40) # polls para detectar fin (40 = 2min)
-        self._required_name_chg = max(required_confirmations * 5, 10)  # polls para cambio de reunión (10 = 30s)
+        self._required_end      = max(required_confirmations * 20, 40) # polls fin conservador (40 = 2min)
+        self._required_end_fast = 5   # polls fin rápido cuando título es genérico (5 = 15s)
+        self._required_name_chg = max(required_confirmations * 5, 10)  # polls cambio de reunión (10 = 30s)
         self._in_call = False
         self._call_streak = 0
         self._no_call_streak = 0
         self._current_meeting_name: str | None = None
         self._name_change_candidate: str | None = None
         self._name_change_streak = 0
+        self._title_went_generic = False  # título volvió a genérico mientras en llamada
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
@@ -144,13 +146,23 @@ class TeamsCallDetector:
                 try:
                     pids = _teams_pids()
                     detected_name = None
+                    audio_active = False
+                    title_active = False
                     if pids:
-                        active = _check_audio_session(pids)
+                        audio_active = _check_audio_session(pids)
                         title_active, detected_name = _check_window_titles(pids)
-                        if not active:
-                            active = title_active
+
+                    # Para INICIAR grabación: exigir título de reunión (evita falsos positivos
+                    # por notificaciones / vídeos de Teams que activan sesión de audio sin reunión).
+                    # Para MANTENER llamada en curso: audio O título es suficiente.
+                    if not self._in_call:
+                        active = title_active
                     else:
-                        active = False
+                        active = audio_active or title_active
+
+                    # Detectar cuándo el título vuelve a ser genérico (señal fuerte de fin)
+                    if self._in_call and not title_active:
+                        self._title_went_generic = True
 
                     if active:
                         self._call_streak += 1
@@ -162,6 +174,7 @@ class TeamsCallDetector:
 
                     if not self._in_call and self._call_streak >= self._required:
                         self._in_call = True
+                        self._title_went_generic = False
                         self._current_meeting_name = detected_name
                         log.info("Llamada Teams detectada")
                         if self.on_call_started:
@@ -171,18 +184,21 @@ class TeamsCallDetector:
                     elif (self._in_call and active
                           and detected_name and self._current_meeting_name
                           and detected_name != self._current_meeting_name):
-                        # Nombre diferente — confirmar durante N polls antes de tratarlo como reunión nueva
+                        # Nombre diferente — confirmar durante N polls antes de tratarlo como reunión nueva.
+                        # Si el título ya fue genérico (llamada anterior terminó brevemente), confirmar
+                        # más rápido: la reunión anterior terminó y empezó una nueva.
+                        required_chg = (max(self._required, 2)
+                                        if self._title_went_generic
+                                        else self._required_name_chg)
                         if detected_name == self._name_change_candidate:
                             self._name_change_streak += 1
                         else:
                             self._name_change_candidate = detected_name
                             self._name_change_streak = 1
-                        if self._name_change_streak >= self._required_name_chg:
+                        if self._name_change_streak >= required_chg:
                             recording_active = self.is_active_recording and self.is_active_recording()
-                            if recording_active:
-                                # Hay grabación en curso: el cambio de título es un evento de Teams
-                                # (compartir pantalla, ver pantalla ajena, etc.) dentro de la misma
-                                # reunión — sólo actualizar el nombre, sin disparar eventos.
+                            if recording_active and not self._title_went_generic:
+                                # Cambio de título dentro de la misma reunión (compartir pantalla, etc.)
                                 log.info(f"Nombre actualizado (grabando): '{self._current_meeting_name}' → '{detected_name}'")
                             else:
                                 log.info(f"Cambio de reunión confirmado: '{self._current_meeting_name}' → '{detected_name}'")
@@ -194,6 +210,7 @@ class TeamsCallDetector:
                                     threading.Thread(target=self.on_call_started, daemon=True,
                                                      name='TeamsCallStarted').start()
                             self._current_meeting_name = detected_name
+                            self._title_went_generic = False
                             self._name_change_candidate = None
                             self._name_change_streak = 0
 
@@ -202,12 +219,19 @@ class TeamsCallDetector:
                         self._name_change_candidate = None
                         self._name_change_streak = 0
 
-                    if self._in_call and self._no_call_streak >= self._required_end:
+                    # Fin rápido: título claramente genérico + sin audio por _required_end_fast polls (15s)
+                    # Cubre el caso de colgar y llamar rápido a otra persona (el streak largo nunca llegaría).
+                    fast_end = (self._title_went_generic and not audio_active
+                                and self._no_call_streak >= self._required_end_fast)
+                    slow_end = self._no_call_streak >= self._required_end
+
+                    if self._in_call and (fast_end or slow_end):
                         self._in_call = False
+                        self._title_went_generic = False
                         self._current_meeting_name = None
                         self._name_change_candidate = None
                         self._name_change_streak = 0
-                        log.info("Llamada Teams finalizada")
+                        log.info(f"Llamada Teams finalizada ({'rapido' if fast_end else 'normal'})")
                         if self.on_call_ended:
                             threading.Thread(target=self.on_call_ended, daemon=True,
                                              name='TeamsCallEnded').start()

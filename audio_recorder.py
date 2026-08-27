@@ -42,8 +42,10 @@ class AudioRecorder:
     def start(self, output_path: Path):
         if self._recording:
             return
-        self._mic_chunks.clear()
-        self._loop_chunks.clear()
+        with self._mic_lock:
+            self._mic_chunks.clear()
+        with self._loop_lock:
+            self._loop_chunks.clear()
         self._chunk_mic_pos = 0
         self._save_event.clear()
         self._output_path = output_path
@@ -94,7 +96,17 @@ class AudioRecorder:
                 pass
             self._loopback_proc = None
 
-        t = threading.Thread(target=self._process_and_save, daemon=True, name='AudioProcessor')
+        # Capturar los datos ahora con el lock, antes de que un start() concurrente
+        # haga clear() y borre los chunks de esta grabación.
+        with self._mic_lock:
+            mic_data = list(self._mic_chunks)
+        with self._loop_lock:
+            loop_data = list(self._loop_chunks)
+
+        t = threading.Thread(
+            target=self._process_and_save, args=(mic_data, loop_data),
+            daemon=True, name='AudioProcessor',
+        )
         t.start()
         return self._output_path
 
@@ -177,13 +189,8 @@ class AudioRecorder:
         log.warning("No loopback device found — mic only")
         return False
 
-    def _process_and_save(self):
+    def _process_and_save(self, mic_data: list, loop_data: list):
         try:
-            with self._mic_lock:
-                mic_data = list(self._mic_chunks)
-            with self._loop_lock:
-                loop_data = list(self._loop_chunks)
-
             if not mic_data:
                 log.warning("No mic data recorded")
                 self._save_event.set()
