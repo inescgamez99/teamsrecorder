@@ -1,2 +1,4 @@
+Set fso = CreateObject("Scripting.FileSystemObject")
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """C:\Users\ines.campos\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe"" ""C:\Users\ines.campos\Documents\TeamsRecorder\main.py""", 0, False
+Dim dir : dir = fso.GetParentFolderName(WScript.ScriptFullName)
+WshShell.Run "pythonw """ & dir & "\main.py""", 0, False

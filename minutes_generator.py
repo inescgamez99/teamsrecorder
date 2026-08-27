@@ -44,7 +44,7 @@ Esta seccion tiene dos partes:
 
 Incluye en la tabla TODAS las acciones acordadas: manuales, tecnicas, y las que Claude puede ejecutar.
 Para las acciones que Claude puede ejecutar, añade "(Claude)" junto al responsable en la tabla.
-Ejemplo: | Refactorizar modulo de autenticacion | Ines (Claude) | 15 Jun |
+Ejemplo: | Refactorizar modulo de autenticacion | Ana (Claude) | 15 Jun |
 
 ### Parte 2: Bloques tecnicos (uno por cada accion que Claude puede ejecutar)
 

@@ -16,8 +16,7 @@ from config import PROJECT_DIR
 
 log = logging.getLogger(__name__)
 
-_CLAUDE_EXE = r'C:\Users\ines.campos\.local\bin\claude.exe'
-_CLAUDE_BIN = _CLAUDE_EXE if Path(_CLAUDE_EXE).exists() else shutil.which('claude')
+_CLAUDE_BIN = shutil.which('claude')
 CLAUDE_PROJECTS_DIR = PROJECT_DIR.parent
 
 _PWSH = next(

@@ -96,7 +96,7 @@ En la app → Ajustes → Grabación. Modelos disponibles: `tiny`, `base`, `smal
 
 ### Configurar proyectos y carpetas de exportación
 
-En la app → Ajustes → Proyectos. Puedes asociar un proyecto (ej: GSK) a una carpeta local (ej: ruta mapeada de SharePoint). Cada reunión detectada como de ese proyecto exportará automáticamente transcript, HTML y versión email a esa carpeta.
+En la app → Ajustes → Proyectos. Puedes asociar un proyecto (ej: "MiProyecto") a una carpeta local (ej: ruta mapeada de SharePoint). Cada reunión detectada como de ese proyecto exportará automáticamente transcript, HTML y versión email a esa carpeta.
 
 ### Directorio de salida personalizado
 

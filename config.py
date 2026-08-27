@@ -37,9 +37,7 @@ CLAUDE_MAX_TOKENS = 8192
 def _find_claude_bin() -> str | None:
     import re as _re
     # Preferir siempre el exe directo (no el wrapper CMD que se cuelga sin consola)
-    candidates = [
-        Path(r'C:\Users\ines.campos\.local\bin\claude.exe'),
-    ]
+    candidates = []
     for p in candidates:
         if p.exists():
             return str(p)

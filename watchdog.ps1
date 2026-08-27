@@ -4,17 +4,12 @@ $mainpy = Join-Path $dir "main.py"
 $lockf  = Join-Path $dir ".lock"
 $logf   = Join-Path $dir "teamsrecorder.log"
 
-# Buscar pythonw.exe - primero en el path fijo conocido, luego en PATH
-$fixedPython = "C:\Users\ines.campos\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe"
-if (Test-Path $fixedPython) {
-    $python = $fixedPython
-} else {
-    $found = Get-Command pythonw.exe -ErrorAction SilentlyContinue
-    if ($found) { $python = $found.Source }
-    else {
-        $found2 = Get-Command python.exe -ErrorAction SilentlyContinue
-        if ($found2) { $python = $found2.Source } else { $python = $null }
-    }
+# Buscar pythonw.exe / python.exe en PATH
+$found = Get-Command pythonw.exe -ErrorAction SilentlyContinue
+if ($found) { $python = $found.Source }
+else {
+    $found2 = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($found2) { $python = $found2.Source } else { $python = $null }
 }
 
 function Log($msg) {
