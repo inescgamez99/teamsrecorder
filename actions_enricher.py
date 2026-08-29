@@ -262,6 +262,52 @@ No explanation, just the id or "none"."""
         log.warning(f"Project detection failed: {e}")
 
 
+def add_manual_action(minutes_path: Path, title: str,
+                      deadline: str = '', assignee: str = '') -> dict | None:
+    """Añade una acción manual (type='human') a la reunión. Crea el JSON si no existe."""
+    import re as _re
+    ap = get_actions_path(minutes_path)
+    try:
+        if ap.exists():
+            data = json.loads(ap.read_text(encoding='utf-8'))
+        else:
+            data = {
+                'minutes':      str(minutes_path),
+                'generated_at': datetime.now(timezone.utc).isoformat(),
+                'actions':      [],
+            }
+        actions = data.setdefault('actions', [])
+        next_index = max((a.get('index', -1) for a in actions), default=-1) + 1
+        m = _re.match(r'(\d{4})(\d{2})(\d{2})', minutes_path.stem)
+        created_at = (f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m
+                      else datetime.now(timezone.utc).date().isoformat())
+        action = {
+            'index':            next_index,
+            'type':             'human',
+            'title':            title,
+            'archivo':          None,
+            'context':          None,
+            'prompt_original':  '',
+            'project':          None,
+            'project_path':     None,
+            'prompt_enriched':  '',
+            'enriched_ok':      False,
+            'assignee':         assignee or None,
+            'deadline':         deadline or None,
+            'created_at':       created_at,
+            'claude_executable': False,
+            'executed':         False,
+            'manual':           True,
+        }
+        actions.append(action)
+        ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        log.info(f"Acción manual añadida a {minutes_path.name}: {title[:60]}")
+        return action
+    except Exception as e:
+        log.warning(f"add_manual_action: {e}")
+        return None
+
+
 def set_meeting_project_id(minutes_path: Path, project_id: str) -> bool:
     """Set (or override) project_id for a meeting. Creates a stub actions.json if none exists."""
     ap = get_actions_path(minutes_path)

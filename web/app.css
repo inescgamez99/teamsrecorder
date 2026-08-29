@@ -187,7 +187,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui,
 
 /* Acciones de una reunión */
 .actions-section { padding: 20px 32px 32px; }
-.actions-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.actions-section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .actions-count { font-size: 13px; color: var(--subtext); }
 
 .action-card {
@@ -436,6 +436,20 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui,
 .project-settings-item:hover {
   box-shadow: 0 3px 10px rgba(0,0,0,0.09);
 }
+.project-settings-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  cursor: pointer; user-select: none;
+}
+.project-settings-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-chevron { flex-shrink: 0; font-size: 12px; color: var(--muted); transition: color 0.15s; }
+.project-settings-row:hover .project-chevron,
+.project-settings-row:hover .project-settings-name { color: var(--accent); }
+.project-settings-detail { margin-top: 4px; }
+.proj-export-check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: var(--text); }
+.proj-export-check input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
+.proj-export-check.disabled { color: var(--muted); cursor: default; opacity: 0.7; }
+.proj-export-check.disabled input { cursor: not-allowed; accent-color: var(--muted); }
+.settings-text-input:disabled { background: var(--surface2); color: var(--muted); cursor: default; opacity: 0.8; }
 .proj-field-label { font-size: 10px; font-weight: 700; color: var(--subtext); text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* ── Project filter bar ── */
@@ -785,19 +799,29 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui,
 .task-source-btn:hover { background: var(--surface2); color: var(--accent); }
 
 /* ── Status badge ── */
-.task-status-btn {
+.task-status-btn, .task-status-select {
   display: inline-flex; align-items: center; gap: 5px;
   border: none; border-radius: 5px; padding: 3px 9px;
   font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap;
-  font-family: inherit; transition: filter 0.12s;
+  font-family: inherit; transition: filter 0.12s; max-width: 100%;
 }
-.task-status-btn:hover { filter: brightness(0.92); }
-.task-status-btn.not_started { background: var(--surface2); color: var(--subtext); }
-.task-status-btn.in_progress { background: #dbeafe; color: #1e40af; }
-.task-status-btn.done        { background: #dcfce7; color: #15803d; }
-[data-theme="dark"] .task-status-btn.not_started { background: var(--surface2); color: var(--subtext); }
-[data-theme="dark"] .task-status-btn.in_progress { background: #1e3a5f; color: #93c5fd; }
-[data-theme="dark"] .task-status-btn.done        { background: #14532d; color: #86efac; }
+.task-status-select { -webkit-appearance: none; appearance: none; padding-right: 20px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='currentColor' fill='none' stroke-width='1.5'/></svg>");
+  background-repeat: no-repeat; background-position: right 6px center; }
+.task-status-btn:hover, .task-status-select:hover { filter: brightness(0.92); }
+.task-status-btn.not_started, .task-status-select.not_started { background-color: var(--surface2); color: var(--subtext); }
+.task-status-btn.in_progress, .task-status-select.in_progress { background-color: #dbeafe; color: #1e40af; }
+.task-status-btn.done,        .task-status-select.done        { background-color: #dcfce7; color: #15803d; }
+.task-status-btn.blocked,          .task-status-select.blocked          { background-color: #fee2e2; color: #b91c1c; }
+.task-status-btn.paused,           .task-status-select.paused           { background-color: #fef3c7; color: #92400e; }
+.task-status-btn.pending_feedback, .task-status-select.pending_feedback { background-color: #ede9fe; color: #6d28d9; }
+[data-theme="dark"] .task-status-btn.not_started, [data-theme="dark"] .task-status-select.not_started { background-color: var(--surface2); color: var(--subtext); }
+[data-theme="dark"] .task-status-btn.in_progress, [data-theme="dark"] .task-status-select.in_progress { background-color: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .task-status-btn.done,        [data-theme="dark"] .task-status-select.done        { background-color: #14532d; color: #86efac; }
+[data-theme="dark"] .task-status-btn.blocked,          [data-theme="dark"] .task-status-select.blocked          { background-color: #4c1d1d; color: #fca5a5; }
+[data-theme="dark"] .task-status-btn.paused,           [data-theme="dark"] .task-status-select.paused           { background-color: #422006; color: #fcd34d; }
+[data-theme="dark"] .task-status-btn.pending_feedback, [data-theme="dark"] .task-status-select.pending_feedback { background-color: #3b2f5e; color: #c4b5fd; }
+.task-status-select option { background: var(--surface); color: var(--text); }
 
 /* ── Assignee / deadline inline inputs ── */
 .task-cell-input {
@@ -941,12 +965,45 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui,
 }
 .drawer-prompt-textarea:focus { border-color: var(--accent); }
 
+.drawer-desc-textarea {
+  width: 100%; min-height: 90px; resize: vertical;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px; font-size: 13px;
+  color: var(--text); font-family: inherit; outline: none;
+  line-height: 1.5; box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.drawer-desc-textarea:focus { border-color: var(--accent); }
+
 .drawer-meeting-link {
   font-size: 12px; color: var(--accent); background: none; border: none;
   cursor: pointer; padding: 0; font-family: inherit; text-align: left;
   text-decoration: underline; text-underline-offset: 2px;
 }
 .drawer-meeting-link:hover { opacity: 0.75; }
+
+.drawer-meeting-card {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; cursor: pointer;
+  font-family: inherit; text-align: left; transition: border-color 0.15s, background 0.15s;
+}
+.drawer-meeting-card:hover { border-color: var(--accent); background: var(--surface2); }
+.drawer-meeting-card-icon { font-size: 16px; flex-shrink: 0; }
+.drawer-meeting-card-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.drawer-meeting-card-title { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-meeting-card-date { font-size: 11px; color: var(--muted); }
+.drawer-meeting-card-arrow { flex-shrink: 0; color: var(--accent); font-size: 14px; }
+
+/* ── Añadir acción manual ── */
+.add-action-form {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px; margin-bottom: 12px;
+}
+.add-action-row { display: flex; gap: 8px; }
+.add-action-row .settings-text-input { flex: 1; }
+.add-action-btns { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* ── Add task / subitem rows ── */
 .task-add-row {

@@ -366,8 +366,35 @@ class AppAPI:
         return _update(task_id, fields)
 
     def delete_task(self, task_id: str) -> bool:
-        from tasks_store import delete_task as _delete
+        from tasks_store import delete_task as _delete, get_tasks as _get
+        # Antes de borrar, limpiar el flag in_panel de la acción de reunión origen
+        # (si la hay) para mantener la coherencia y permitir volver a añadirla.
+        try:
+            for tk in _get():
+                if tk.get('id') == task_id and tk.get('meeting_path') and tk.get('meeting_action_index') is not None:
+                    self._clear_action_in_panel(tk['meeting_path'], tk['meeting_action_index'])
+                    break
+        except Exception as e:
+            log.warning(f"delete_task clear in_panel: {e}")
         return _delete(task_id)
+
+    def _clear_action_in_panel(self, path: str, index: int) -> None:
+        from actions_enricher import get_actions_path
+        ap = get_actions_path(Path(path))
+        if not ap.exists():
+            return
+        try:
+            data = json.loads(ap.read_text(encoding='utf-8'))
+            changed = False
+            for a in data.get('actions', []):
+                if a.get('index') == index and a.get('in_panel'):
+                    a['in_panel'] = False
+                    changed = True
+                    break
+            if changed:
+                ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        except Exception as e:
+            log.warning(f"_clear_action_in_panel: {e}")
 
     def move_action_to_panel(self, path: str, index: int,
                              project_id: str, parent_id: str = '') -> str:
@@ -423,6 +450,20 @@ class AppAPI:
             ap.unlink()
         enrich_and_save(md_path, PROJECT_DIR.parent)
         return True
+
+    def add_meeting_action(self, path: str, title: str,
+                           deadline: str = '', assignee: str = '') -> bool:
+        """Añade una acción manual a una reunión (para acciones que la IA no detectó)."""
+        from actions_enricher import add_manual_action
+        if not title or not title.strip():
+            return False
+        try:
+            result = add_manual_action(Path(path), title.strip(),
+                                       (deadline or '').strip(), (assignee or '').strip())
+            return result is not None
+        except Exception as e:
+            log.error(f"add_meeting_action: {e}")
+            return False
 
     def reenrich_all_meetings(self) -> int:
         """Re-enriquece todas las minutas. Devuelve el número de minutas lanzadas."""

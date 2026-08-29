@@ -8,7 +8,8 @@ Schema:
       "id": str,                    # uuid4
       "project_id": str,            # matches projects.json id, or "none"
       "title": str,
-      "status": "not_started" | "in_progress" | "done",
+      "description": str,           # detalle largo, se edita solo en el drawer
+      "status": "not_started" | "in_progress" | "blocked" | "paused" | "pending_feedback" | "done",
       "assignee": str | null,
       "deadline": str | null,
       "priority": "high" | "medium" | "low" | null,
@@ -64,12 +65,14 @@ def create_task(
     meeting_path: str | None = None,
     meeting_action_index: int | None = None,
     claude_executable: bool = False,
+    description: str = '',
 ) -> dict:
     data = _load()
     task = {
         'id': str(uuid.uuid4()),
         'project_id': project_id or 'none',
         'title': title,
+        'description': description,
         'status': status,
         'assignee': assignee,
         'deadline': deadline,
@@ -87,7 +90,7 @@ def create_task(
 
 
 def update_task(task_id: str, fields: dict) -> bool:
-    allowed = {'title', 'status', 'assignee', 'deadline', 'priority', 'parent_id', 'project_id'}
+    allowed = {'title', 'description', 'status', 'assignee', 'deadline', 'priority', 'parent_id', 'project_id'}
     data = _load()
     for task in data['tasks']:
         if task['id'] == task_id:
