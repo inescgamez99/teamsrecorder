@@ -78,6 +78,10 @@ const T = {
     confirm_delete_project: name => name
       ? `¿Seguro que quieres eliminar el proyecto "${name}"? Esta acción no se puede deshacer.`
       : '¿Seguro que quieres eliminar este proyecto? Esta acción no se puede deshacer.',
+    ctx_delete_meeting: 'Eliminar',
+    confirm_delete_meeting_title: 'Eliminar reunión',
+    confirm_delete_meeting: title => `¿Seguro que quieres eliminar la reunión "${title}"? Se borrarán las notas, acciones y transcripción. Esta acción no se puede deshacer.`,
+    toast_meeting_deleted: 'Reunión eliminada',
     no_match_actions: 'No hay acciones en el panel. Mueve acciones desde "Gestionar acciones".',
     toast_claude: 'Abriendo Claude...', toast_terminal: 'Abriendo terminal...',
     toast_outlook: 'Abriendo Outlook...', toast_done: 'Acción marcada como hecha',
@@ -138,6 +142,7 @@ const T = {
     status_not_started: 'Sin empezar', status_in_progress: 'En curso', status_done: 'Completado',
     status_blocked: 'Bloqueada', status_paused: 'En pausa', status_pending_feedback: 'Pend. feedback',
     task_col_description: 'Descripción', desc_placeholder: 'Añade una descripción...',
+    proj_color_label: 'Color del proyecto',
     priority_none: '— Prioridad', priority_high: 'Alta', priority_medium: 'Media', priority_low: 'Baja',
     task_add_task: '+ Nueva tarea', task_add_subitem: '+ Nuevo subitem',
     task_new_ph: 'Nombre de la tarea…', task_empty: 'Sin tareas. Usa "+ Nueva tarea" para añadir.',
@@ -212,6 +217,10 @@ const T = {
     confirm_delete_project: name => name
       ? `Are you sure you want to delete the project "${name}"? This action cannot be undone.`
       : 'Are you sure you want to delete this project? This action cannot be undone.',
+    ctx_delete_meeting: 'Delete',
+    confirm_delete_meeting_title: 'Delete meeting',
+    confirm_delete_meeting: title => `Are you sure you want to delete the meeting "${title}"? Notes, actions and transcript will be removed. This action cannot be undone.`,
+    toast_meeting_deleted: 'Meeting deleted',
     no_match_actions: 'No actions in the panel. Move actions from "Manage actions".',
     toast_claude: 'Opening Claude...', toast_terminal: 'Opening terminal...',
     toast_outlook: 'Opening Outlook...', toast_done: 'Action marked as done',
@@ -272,6 +281,7 @@ const T = {
     status_not_started: 'Not started', status_in_progress: 'In progress', status_done: 'Done',
     status_blocked: 'Blocked', status_paused: 'Paused', status_pending_feedback: 'Pending feedback',
     task_col_description: 'Description', desc_placeholder: 'Add a description...',
+    proj_color_label: 'Project color',
     priority_none: '— Priority', priority_high: 'High', priority_medium: 'Medium', priority_low: 'Low',
     task_add_task: '+ New task', task_add_subitem: '+ New sub-item',
     task_new_ph: 'Task name…', task_empty: 'No tasks. Use "+ New task" to add one.',
@@ -314,6 +324,7 @@ const actionPaths   = {};   // i -> {path, index}
 window.addEventListener('pywebviewready', async () => {
   await initSettings();
   initResize();
+  _initMeetingContextMenu();
   allProjects = await pywebview.api.get_projects();
   await loadMeetings();
   await refreshPendingBadge();
@@ -333,9 +344,27 @@ window.addEventListener('pywebviewready', async () => {
 async function loadMeetings() {
   const meetings = await pywebview.api.get_meetings();
   allMeetings = meetings;
+  meetingPaths.length = 0;
   meetings.forEach((m, i) => { meetingPaths[i] = m.path; });
   renderSidebar(meetings);
   if (meetings.length > 0) openMeeting(meetings[0].path);
+}
+
+async function refreshMeetingList() {
+  const meetings = await pywebview.api.get_meetings();
+  allMeetings = meetings;
+  meetingPaths.length = 0;
+  meetings.forEach((m, i) => { meetingPaths[i] = m.path; });
+  renderSidebar(meetings);
+  // If the currently open meeting no longer exists, clear the right panel
+  if (currentPath && !meetings.some(m => _samePath(m.path, currentPath))) {
+    currentPath = null;
+    document.getElementById('main-panel').innerHTML = '';
+  }
+}
+
+function _samePath(a, b) {
+  return a && b && a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
 }
 
 // ── Vistas ────────────────────────────────────────────────────────────────────
@@ -406,6 +435,12 @@ function renderSidebarByDays(meetings) {
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
     });
+    el.addEventListener('contextmenu', e => {
+      const idx = parseInt(el.dataset.midx);
+      const path = meetingPaths[idx];
+      const title = allMeetings[idx]?.title || '';
+      if (path) _showMeetingContextMenu(e, path, title, el);
+    });
   });
 }
 
@@ -417,7 +452,8 @@ function renderSidebarByProject(meetings) {
   }
 
   const projNames = {};
-  allProjects.forEach(p => { projNames[p.id] = p.name; });
+  const projMap = {};
+  allProjects.forEach(p => { projNames[p.id] = p.name; projMap[p.id] = p; });
 
   const groups = {};
   meetings.forEach((m, idx) => {
@@ -435,11 +471,13 @@ function renderSidebarByProject(meetings) {
     return (projNames[a] || a).localeCompare(projNames[b] || b);
   });
 
-  list.innerHTML = entries.map(([pid, grp]) => `
+  list.innerHTML = entries.map(([pid, grp]) => {
+    const color = _projectColor(projMap[pid] || { id: pid });
+    return `
     <div class="project-sidebar-group">
-      <div class="project-sidebar-header" onclick="toggleProjectSidebarGroup('${escHtml(pid)}')">
-        <span class="project-sidebar-name">${escHtml(grp.name)}</span>
-        <span class="project-sidebar-chevron" id="pchev-${escHtml(pid)}">▾</span>
+      <div class="project-sidebar-header" style="border-left:2px solid ${color}" onclick="toggleProjectSidebarGroup('${escHtml(pid)}')">
+        <span class="project-sidebar-name" style="color:${color}">${escHtml(grp.name)}</span>
+        <span class="project-sidebar-chevron" id="pchev-${escHtml(pid)}" style="color:${color}">▾</span>
       </div>
       <div class="project-sidebar-items" id="pgroup-${escHtml(pid)}">
         ${grp.items.map(m => `
@@ -452,13 +490,19 @@ function renderSidebarByProject(meetings) {
           </div>
         `).join('')}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   list.querySelectorAll('.meeting-item').forEach(el => {
     el.addEventListener('click', () => {
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
+    });
+    el.addEventListener('contextmenu', e => {
+      const idx = parseInt(el.dataset.midx);
+      const path = meetingPaths[idx];
+      const title = allMeetings[idx]?.title || '';
+      if (path) _showMeetingContextMenu(e, path, title, el);
     });
   });
 }
@@ -469,6 +513,77 @@ function toggleProjectSidebarGroup(pid) {
   if (!items) return;
   items.classList.toggle('collapsed');
   if (chev) chev.textContent = items.classList.contains('collapsed') ? '▸' : '▾';
+}
+
+// ── Meeting context menu (right-click: rename / delete) ──────────────────────
+
+let _ctxPath  = null;
+let _ctxTitle = null;
+let _ctxEl    = null;
+
+function _initMeetingContextMenu() {
+  const menu   = document.getElementById('meeting-ctx-menu');
+  const delBtn = document.getElementById('ctx-delete-btn');
+  if (!menu) return;
+
+  delBtn.onclick = () => { menu.classList.add('hidden'); _confirmDeleteMeeting(); };
+
+  document.addEventListener('click', () => menu.classList.add('hidden'));
+  document.addEventListener('contextmenu', e => {
+    if (!e.target.closest('.meeting-item')) menu.classList.add('hidden');
+  });
+}
+
+function _showMeetingContextMenu(e, path, title, el) {
+  e.preventDefault();
+  e.stopPropagation();
+  _ctxPath  = path;
+  _ctxTitle = title;
+  _ctxEl    = el;
+  const menu = document.getElementById('meeting-ctx-menu');
+  menu.classList.remove('hidden');
+  const x = Math.min(e.clientX, window.innerWidth  - 175);
+  const y = Math.min(e.clientY, window.innerHeight - 75);
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+}
+
+
+function _confirmDeleteMeeting() {
+  if (!_ctxPath) return;
+  // Capture all references now, before the modal opens and _ctx* might change
+  const pathToDelete  = _ctxPath;
+  const titleToDelete = _ctxTitle;
+  const elToRemove    = _ctxEl;
+
+  openConfirmModal(
+    t('confirm_delete_meeting', titleToDelete || ''),
+    async () => {
+      const ok = await pywebview.api.delete_meeting(pathToDelete);
+      if (ok) {
+        showToast(t('toast_meeting_deleted'));
+
+        // Clear right panel immediately if this meeting is open
+        if (_samePath(currentPath, pathToDelete)) {
+          currentPath = null;
+          document.getElementById('main-panel').innerHTML = '';
+        }
+
+        // Remove sidebar item immediately for instant feedback
+        if (elToRemove && elToRemove.isConnected) {
+          const dayGroup  = elToRemove.closest('.day-group');
+          const projGroup = elToRemove.closest('.project-sidebar-group');
+          elToRemove.remove();
+          if (dayGroup  && !dayGroup.querySelector('.meeting-item'))  dayGroup.remove();
+          if (projGroup && !projGroup.querySelector('.meeting-item')) projGroup.remove();
+        }
+
+        // Full refresh — also clears right panel if currentPath is gone
+        await refreshMeetingList();
+      }
+    },
+    { title: t('confirm_delete_meeting_title'), okLabel: t('btn_delete') }
+  );
 }
 
 function dayLabel(dateStr) {
@@ -809,6 +924,17 @@ async function _prefillWorkingDirs(actions, path) {
 
 // ── Task board (Panel de Acciones — Notion style) ────────────────────────────
 
+const PROJECT_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#84cc16','#14b8a6'];
+
+function _projectColor(project) {
+  if (!project || project.id === 'none') return 'var(--accent)';
+  if (project.color) return project.color;
+  const id = project.id || '';
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i)) % PROJECT_COLORS.length;
+  return PROJECT_COLORS[hash];
+}
+
 const STATUS_CYCLE   = ['not_started', 'in_progress', 'blocked', 'paused', 'pending_feedback', 'done'];
 const PRIORITY_CYCLE = [null, 'high', 'medium', 'low'];
 
@@ -852,13 +978,14 @@ function _renderProjectSection(project, projectTasks) {
     if (t.parent_id) { if (!subMap[t.parent_id]) subMap[t.parent_id] = []; subMap[t.parent_id].push(t); }
   });
   const done = topLevel.filter(t => t.status === 'done').length;
+  const color = _projectColor(project);
 
   return `
   <div class="task-project-section" data-project-id="${project.id}">
-    <div class="task-project-header" onclick="toggleProjectSection('${project.id}')">
-      <span class="task-project-chevron open">▶</span>
-      <span class="task-project-name">${escHtml(project.name)}</span>
-      <span class="task-project-count">${done}/${topLevel.length}</span>
+    <div class="task-project-header" style="border-left-color:${color}" onclick="toggleProjectSection('${project.id}')">
+      <span class="task-project-chevron open" style="color:${color}">▶</span>
+      <span class="task-project-name" style="color:${color}">${escHtml(project.name)}</span>
+      <span class="task-project-count" style="color:${color};background:${color}1a">${done}/${topLevel.length}</span>
     </div>
     <div class="task-project-body" id="proj-body-${project.id}">
       <div class="task-col-headers">
@@ -1004,10 +1131,12 @@ function _bindTaskBoardEvents() {
       document.getElementById('taskwrap-' + id)?.remove();
       if (task?.project_id) _refreshProjectCount(task.project_id);
       refreshPendingBadge();
-      // Si la tarea venía de la reunión abierta, refrescar sus acciones para que
-      // el botón vuelva de "In panel" a "Move to panel".
-      if (task?.meeting_path && task.meeting_path === currentPath) {
-        refreshMeetingActions(task.meeting_path);
+      // Refrescar acciones de la reunión abierta para que el botón vuelva de
+      // "In panel" a "Move to panel". Usamos currentPath (no task.meeting_path)
+      // porque el meeting puede haber sido renombrado y el path del task puede
+      // estar desactualizado.
+      if (task?.meeting_path && currentPath) {
+        refreshMeetingActions(currentPath);
       }
     });
   });
@@ -1286,6 +1415,23 @@ let _newProjectFolder = '';
 let _editingProjectId = null;         // proyecto actualmente en modo edición (o null)
 const _expandedProjects = new Set();  // ids de proyectos con el detalle desplegado
 
+function toggleColorPicker(pid) {
+  const picker = document.getElementById(`color-picker-${pid}`);
+  if (!picker) return;
+  picker.style.display = picker.style.display === 'none' ? 'flex' : 'none';
+}
+
+function selectProjectColor(swatch, pid) {
+  const picker = document.getElementById(`color-picker-${pid}`);
+  if (picker) {
+    picker.querySelectorAll('.proj-color-swatch').forEach(s => s.classList.remove('selected'));
+    swatch.classList.add('selected');
+    picker.style.display = 'none';
+  }
+  const trigger = document.querySelector(`[data-color-trigger="${pid}"]`);
+  if (trigger) { trigger.style.background = swatch.dataset.color; trigger.dataset.color = swatch.dataset.color; }
+}
+
 function toggleProjectDetail(pid) {
   const card = document.querySelector(`.project-settings-item[data-proj-id="${pid}"]`);
   if (!card) return;
@@ -1314,18 +1460,19 @@ async function loadProjectsSettings(editingId = null) {
     if (isEditing) _expandedProjects.add(p.id);  // mantener abierto al editar
     const isExpanded = isEditing || _expandedProjects.has(p.id);
 
+    const color = _projectColor(p);
+    const colorSwatches = PROJECT_COLORS.map(c =>
+      `<button class="proj-color-swatch${c === color ? ' selected' : ''}" data-color="${c}" style="background:${c}" onclick="selectProjectColor(this,'${pid}')" title="${c}"></button>`
+    ).join('');
+
     const headerRow = isEditing ? `
-      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;flex-direction:column;gap:6px">
         <input class="settings-text-input" id="edit-proj-name-${pid}" value="${escHtml(p.name)}" style="font-size:13px;font-weight:600">
         <input class="settings-text-input" id="edit-proj-desc-${pid}" value="${escHtml(p.description || '')}" placeholder="${t('proj_desc_ph')}" style="font-size:12px">
       </div>
-      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
-        <button class="btn btn-primary btn-sm" onclick="saveEditProject('${pid}')">${t('save_btn')}</button>
-        <button class="btn btn-ghost btn-sm" onclick="loadProjectsSettings()">${t('cancel_btn')}</button>
-      </div>
     ` : `
       <div class="project-settings-row" onclick="toggleProjectDetail('${pid}')">
-        <div style="min-width:0">
+        <div style="min-width:0;flex:1">
           <div class="project-settings-name">${escHtml(p.name)}</div>
           ${p.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.description)}</div>` : ''}
         </div>
@@ -1333,7 +1480,12 @@ async function loadProjectsSettings(editingId = null) {
       </div>
     `;
 
-    const detailActions = isEditing ? '' : `
+    const detailActions = isEditing ? `
+      <div style="display:flex;gap:4px;justify-content:flex-end;margin-bottom:8px">
+        <button class="btn btn-primary btn-sm" onclick="saveEditProject('${pid}')">${t('save_btn')}</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadProjectsSettings()">${t('cancel_btn')}</button>
+      </div>
+    ` : `
       <div style="display:flex;gap:4px;justify-content:flex-end;margin-bottom:4px">
         <button class="btn btn-ghost btn-sm" onclick="loadProjectsSettings('${pid}')">${t('edit_btn')}</button>
         <button class="btn btn-delete btn-sm" onclick="deleteProject('${pid}')">✕</button>
@@ -1344,10 +1496,18 @@ async function loadProjectsSettings(editingId = null) {
     const boxChecked = f => (hasFolder && p['export_save_' + f] !== false) ? 'checked' : '';
 
     return `
-    <div class="project-settings-item${isExpanded ? ' expanded' : ''}" data-proj-id="${pid}">
+    <div class="project-settings-item${isExpanded ? ' expanded' : ''}" data-proj-id="${pid}" style="border-left-color:${color}">
       ${headerRow}
       <div class="project-settings-detail"${isExpanded ? '' : ' style="display:none"'}>
         ${detailActions}
+        ${isEditing ? `
+        <div style="margin-top:4px;margin-bottom:4px">
+          <div class="proj-field-label" style="margin-bottom:6px">${t('proj_color_label')}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button class="proj-color-swatch" data-color-trigger="${pid}" data-color="${color}" style="background:${color}" onclick="toggleColorPicker('${pid}')" title="${t('proj_color_label')}"></button>
+            <div class="proj-color-picker" id="color-picker-${pid}" style="display:none">${colorSwatches}</div>
+          </div>
+        </div>` : ''}
         <div style="margin-top:8px">
           <div class="proj-field-label">${t('proj_stake_label')}</div>
           <div class="settings-card-desc" style="margin:3px 0 5px">${t('proj_stake_desc')}</div>
@@ -1401,6 +1561,9 @@ async function saveEditProject(pid) {
 
   const card = document.querySelector(`.project-settings-item[data-proj-id="${pid}"]`);
   if (card) {
+    // Color
+    const trigger = card.querySelector('[data-color-trigger]');
+    if (trigger) proj.color = trigger.dataset.color;
     // Stakeholders
     const stakeInput = card.querySelector('[data-proj-field="stakeholders"]');
     if (stakeInput) {

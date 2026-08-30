@@ -380,7 +380,15 @@ class AppAPI:
 
     def _clear_action_in_panel(self, path: str, index: int) -> None:
         from actions_enricher import get_actions_path
-        ap = get_actions_path(Path(path))
+        md_path = Path(path)
+        ap = get_actions_path(md_path)
+        if not ap.exists():
+            # Meeting may have been renamed — search by YYYYMMDD_HHMM_ prefix
+            m = re.match(r'(\d{8}_\d{4})_', md_path.stem)
+            if m:
+                candidates = list(md_path.parent.glob(f"{m.group(1)}_*_actions.json"))
+                if candidates:
+                    ap = candidates[0]
         if not ap.exists():
             return
         try:
@@ -560,6 +568,24 @@ class AppAPI:
             return True
         except Exception as e:
             log.error(f"save_project: {e}")
+            return False
+
+    def delete_meeting(self, path: str) -> bool:
+        """Elimina una reunión y todos sus archivos asociados."""
+        md_path = Path(path)
+        if not md_path.exists():
+            return False
+        try:
+            parent = md_path.parent
+            stem = md_path.stem
+            for suf in ['.md', '.html', '_actions.json', '_transcript.txt']:
+                f = parent / f"{stem}{suf}"
+                if f.exists():
+                    f.unlink()
+            log.info(f"delete_meeting: {stem}")
+            return True
+        except Exception as e:
+            log.warning(f"delete_meeting: {e}")
             return False
 
     def set_meeting_project(self, path: str, project_id: str) -> bool:
