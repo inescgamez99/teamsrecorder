@@ -178,6 +178,10 @@ const T = {
     drawer_meeting_label: 'Reunión asociada',
     drawer_title: 'Detalle de tarea',
     pipeline_title: 'En curso',
+    pipeline_idle: 'Sin actividad',
+    btn_edit: 'Editar',
+    save: 'Guardar',
+    cancel: 'Cancelar',
     settings_saved: 'Ajustes guardados',
     btn_delete_meeting: 'Eliminar reunión',
     btn_add_action: '+ Añadir acción',
@@ -332,6 +336,10 @@ const T = {
     drawer_meeting_label: 'Related meeting',
     drawer_title: 'Task detail',
     pipeline_title: 'In progress',
+    pipeline_idle: 'No activity',
+    btn_edit: 'Edit',
+    save: 'Save',
+    cancel: 'Cancel',
     settings_saved: 'Settings saved',
     btn_delete_meeting: 'Delete meeting',
     btn_add_action: '+ Add action',
@@ -392,6 +400,14 @@ window.addEventListener('pywebviewready', async () => {
 
   // Pipeline status footer
   setInterval(updatePipelineFooter, 2000);
+
+  // Navegación externa (evita segunda ventana cuando hay notas nuevas)
+  setInterval(async () => {
+    try {
+      const p = await pywebview.api.get_navigate_request();
+      if (p) openMeeting(p);
+    } catch (_) {}
+  }, 2000);
 });
 
 async function loadMeetings() {
@@ -763,10 +779,11 @@ async function openMeeting(path) {
           </div>
         </div>
         <div class="detail-actions-bar">
-          <button class="btn btn-primary btn-sm" id="btn-claude">${t('btn_chat')}</button>
+          <button class="btn btn-primary btn-sm icon-btn" id="btn-claude"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Claude</span></button>
           <button class="btn btn-ghost btn-sm" id="btn-regenerate">${t('btn_regenerate')}</button>
-          <button class="btn btn-ghost btn-sm" id="btn-email">Email</button>
+          <button class="btn btn-ghost btn-sm icon-btn" id="btn-email"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg><span>Email</span></button>
           <button class="btn btn-ghost btn-sm" id="btn-html">HTML</button>
+          <button class="btn btn-ghost btn-sm" id="btn-edit-notes">${t('btn_edit')}</button>
         </div>
       </div>
       <div class="regen-bar hidden" id="regen-bar">
@@ -802,6 +819,7 @@ async function openMeeting(path) {
   document.getElementById('btn-regenerate').addEventListener('click', () => toggleRegenBar());
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
+  document.getElementById('btn-edit-notes').addEventListener('click', () => enterEditMode(path));
 
 
   requestAnimationFrame(() => {
@@ -2543,12 +2561,13 @@ async function updatePipelineFooter() {
   const jobs = status?.jobs ?? [];
 
   if (!jobs.length) {
-    tab.style.display = 'none';
-    if (_pipelinePanelOpen) togglePipelinePanel();
+    tab.classList.add('idle');
+    dot.className = 'pipeline-tab-dot idle';
+    body.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">${t('pipeline_idle') || 'Sin actividad'}</div>`;
     return;
   }
 
-  tab.style.display = 'flex';
+  tab.classList.remove('idle');
   const anyRecording = jobs.some(j => j.stage === 'recording');
   dot.className = 'pipeline-tab-dot ' + (anyRecording ? 'recording' : 'processing');
 
@@ -2575,5 +2594,31 @@ function togglePipelinePanel() {
   const panel = document.getElementById('pipeline-panel');
   const tab   = document.getElementById('pipeline-tab');
   if (panel) panel.classList.toggle('open', _pipelinePanelOpen);
-  if (tab)   tab.style.display = _pipelinePanelOpen ? 'none' : 'flex';
+  if (tab)   tab.classList.toggle('panel-open', _pipelinePanelOpen);
+}
+
+// ── Editar notas ──────────────────────────────────────────────────────────────
+
+async function enterEditMode(path) {
+  const notesSection = document.getElementById('section-notes');
+  if (!notesSection) return;
+
+  let mdText = '';
+  try { mdText = await pywebview.api.get_minutes_text(path); } catch (_) {}
+
+  notesSection.innerHTML = `
+    <textarea class="notes-edit-area" id="notes-edit-textarea">${escHtml(mdText)}</textarea>
+    <div class="notes-edit-actions">
+      <button class="btn btn-primary btn-sm" id="btn-save-notes">${t('save')}</button>
+      <button class="btn btn-ghost btn-sm" id="btn-cancel-edit">${t('cancel')}</button>
+    </div>`;
+
+  document.getElementById('btn-cancel-edit').addEventListener('click', () => openMeeting(path));
+  document.getElementById('btn-save-notes').addEventListener('click', async () => {
+    const content = document.getElementById('notes-edit-textarea').value;
+    try {
+      await pywebview.api.save_minutes_text(path, content);
+    } catch (_) {}
+    openMeeting(path);
+  });
 }

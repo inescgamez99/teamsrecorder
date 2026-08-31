@@ -16,6 +16,8 @@ tasks.json
 startup_error.txt
 .pipeline_status.json
 .pending_notification.txt
+.app_window.pid
+.app_navigate.txt
 
 # ── Scripts y documentos excluidos por privacidad ────────────────────────────
 extract_gsk_content.py

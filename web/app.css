@@ -1106,10 +1106,16 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui,
   transition: background 0.15s;
 }
 .pipeline-tab:hover { background: var(--surface2); }
+.pipeline-tab.panel-open { background: var(--surface2); }
 .pipeline-tab-dot { width: 9px; height: 9px; border-radius: 50%; }
 .pipeline-tab-dot.recording { background: #f38ba8; animation: pulse-pip 1.2s ease-in-out infinite; }
 .pipeline-tab-dot.processing { background: #f9e2af; animation: pulse-pip 2s ease-in-out infinite; }
+.pipeline-tab-dot.idle { background: var(--muted, #888); opacity: 0.4; animation: none; }
 @keyframes pulse-pip { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.5; transform:scale(1.3); } }
+
+.btn.icon-btn { display: inline-flex; align-items: center; gap: 5px; }
+.notes-edit-area { width: 100%; min-height: 400px; font-family: monospace; font-size: 13px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); resize: vertical; box-sizing: border-box; }
+.notes-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 .pipeline-panel {
   position: fixed; right: 0; top: 0; bottom: 0; width: 0; overflow: hidden;

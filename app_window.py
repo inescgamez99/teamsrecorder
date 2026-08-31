@@ -759,6 +759,34 @@ class AppAPI:
             pass
         return {'jobs': []}
 
+    def get_navigate_request(self) -> str:
+        """Lee y elimina .app_navigate.txt; devuelve la ruta o '' si no hay nada."""
+        nav_file = PROJECT_DIR / '.app_navigate.txt'
+        if not nav_file.exists():
+            return ''
+        try:
+            path = nav_file.read_text(encoding='utf-8').strip()
+            nav_file.unlink(missing_ok=True)
+            return path
+        except Exception:
+            return ''
+
+    def get_minutes_text(self, path: str) -> str:
+        """Devuelve el texto markdown raw de las minutas."""
+        try:
+            return Path(path).read_text(encoding='utf-8')
+        except Exception as e:
+            return ''
+
+    def save_minutes_text(self, path: str, content: str) -> bool:
+        """Guarda el texto markdown editado en el fichero de minutas."""
+        try:
+            Path(path).write_text(content, encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"save_minutes_text: {e}")
+            return False
+
     def get_settings(self) -> dict:
         try:
             p = PROJECT_DIR / 'settings.json'
@@ -1410,13 +1438,35 @@ def _parse_stem(stem: str) -> dict:
 def open_app(initial_path: str = None):
     """
     Lanza la ventana como proceso separado (pywebview necesita el hilo principal,
-    que ya está ocupado por pystray).
+    que ya está ocupado por pystray). Si la ventana ya está abierta, le envía
+    la ruta de navegación en lugar de abrir una segunda instancia.
     """
     import sys
+    pid_file = PROJECT_DIR / '.app_window.pid'
+    nav_file = PROJECT_DIR / '.app_navigate.txt'
+    if pid_file.exists():
+        try:
+            import psutil
+            pid = int(pid_file.read_text(encoding='utf-8').strip())
+            if psutil.pid_exists(pid):
+                nav_file.write_text(initial_path or '', encoding='utf-8')
+                if os.name == 'nt':
+                    try:
+                        import ctypes
+                        hwnd = ctypes.windll.user32.FindWindowW(None, 'TeamsRecorder')
+                        if hwnd:
+                            ctypes.windll.user32.ShowWindow(hwnd, 9)
+                            ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    except Exception:
+                        pass
+                return
+        except Exception:
+            pass
+        pid_file.unlink(missing_ok=True)
+
     if os.name == 'nt':
         try:
             import ctypes
-            # Permite al proceso hijo poner su ventana en primer plano
             ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
         except Exception:
             pass
@@ -1450,6 +1500,11 @@ def _run_window(initial_path: str = None):
     global _window
     import webview
     _cleanup_old_tmp_dirs()
+
+    pid_file = PROJECT_DIR / '.app_window.pid'
+    pid_file.write_text(str(os.getpid()), encoding='utf-8')
+    import atexit
+    atexit.register(lambda: pid_file.unlink(missing_ok=True))
 
     # Desligar el proceso de python.exe para que la taskbar muestre el icono propio
     if os.name == 'nt':
