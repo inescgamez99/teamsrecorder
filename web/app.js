@@ -34,7 +34,13 @@ let currentLang = localStorage.getItem('lang') || 'es';
 
 const T = {
   es: {
-    nav_notes: 'Notas', nav_action_panel: 'Panel Acciones', nav_projects: 'Proyectos', settings_nav: 'Ajustes',
+    nav_notes: 'Notas', nav_action_panel: 'Panel Acciones', nav_projects: 'Proyectos', nav_trash: 'Eliminados recientemente', settings_nav: 'Ajustes',
+    trash_desc: 'Las reuniones eliminadas se guardan aquí. Puedes recuperarlas o borrarlas definitivamente.',
+    trash_empty: 'La papelera está vacía.',
+    trash_recover: 'Recuperar', trash_delete_forever: 'Borrar definitivamente',
+    trash_recovered: 'Reunión recuperada', trash_purged: 'Eliminada definitivamente',
+    trash_deleted_at: 'eliminada', trash_files: 'archivos',
+    trash_purge_confirm: title => `¿Borrar definitivamente "${title}"? No se podrá recuperar.`,
     lang_label: 'Idioma de la app', theme_label: 'Tema',
     n_pending: n => `${n} pendiente${n > 1 ? 's' : ''}`,
     n_done:    n => `${n} hecha${n > 1 ? 's' : ''}`,
@@ -98,7 +104,7 @@ const T = {
       : '¿Seguro que quieres eliminar este proyecto? Esta acción no se puede deshacer.',
     ctx_delete_meeting: 'Eliminar',
     confirm_delete_meeting_title: 'Eliminar reunión',
-    confirm_delete_meeting: title => `¿Seguro que quieres eliminar la reunión "${title}"? Se borrarán las notas, acciones y transcripción. Esta acción no se puede deshacer.`,
+    confirm_delete_meeting: title => `¿Enviar la reunión "${title}" a la papelera? Podrás recuperarla desde la Papelera.`,
     toast_meeting_deleted: 'Reunión eliminada',
     no_match_actions: 'No hay acciones en el panel. Mueve acciones desde "Gestionar acciones".',
     toast_claude: 'Abriendo Claude...', toast_terminal: 'Abriendo terminal...',
@@ -182,7 +188,13 @@ const T = {
     add_action_cancel: 'Cancelar',
   },
   en: {
-    nav_notes: 'Notes', nav_action_panel: 'Action Panel', nav_projects: 'Projects', settings_nav: 'Settings',
+    nav_notes: 'Notes', nav_action_panel: 'Action Panel', nav_projects: 'Projects', nav_trash: 'Recently Deleted', settings_nav: 'Settings',
+    trash_desc: 'Deleted meetings are kept here. You can recover them or delete them permanently.',
+    trash_empty: 'Trash is empty.',
+    trash_recover: 'Recover', trash_delete_forever: 'Delete permanently',
+    trash_recovered: 'Meeting recovered', trash_purged: 'Permanently deleted',
+    trash_deleted_at: 'deleted', trash_files: 'files',
+    trash_purge_confirm: title => `Permanently delete "${title}"? This cannot be undone.`,
     lang_label: 'App language', theme_label: 'Theme',
     n_pending: n => `${n} pending`,
     n_done:    n => `${n} done`,
@@ -246,7 +258,7 @@ const T = {
       : 'Are you sure you want to delete this project? This action cannot be undone.',
     ctx_delete_meeting: 'Delete',
     confirm_delete_meeting_title: 'Delete meeting',
-    confirm_delete_meeting: title => `Are you sure you want to delete the meeting "${title}"? Notes, actions and transcript will be removed. This action cannot be undone.`,
+    confirm_delete_meeting: title => `Move the meeting "${title}" to Trash? You can recover it from the Trash.`,
     toast_meeting_deleted: 'Meeting deleted',
     no_match_actions: 'No actions in the panel. Move actions from "Manage actions".',
     toast_claude: 'Opening Claude...', toast_terminal: 'Opening terminal...',
@@ -345,6 +357,8 @@ function applyLang(lang) {
   });
   const si = document.getElementById('search-input');
   if (si) si.placeholder = t('search_ph');
+  const trashBtn = document.getElementById('btn-trash');
+  if (trashBtn) trashBtn.title = t('nav_trash');
   renderWhisperOptions();
   if (!document.getElementById('view-projects').classList.contains('hidden')) {
     loadProjectsSettings();
@@ -412,13 +426,16 @@ function showView(view) {
   document.getElementById('view-meetings').classList.toggle('hidden', view !== 'meetings');
   document.getElementById('view-actions').classList.toggle('hidden', view !== 'actions');
   document.getElementById('view-projects').classList.toggle('hidden', view !== 'projects');
+  document.getElementById('view-trash').classList.toggle('hidden', view !== 'trash');
   document.getElementById('view-settings').classList.toggle('hidden', view !== 'settings');
   document.getElementById('btn-meetings').classList.toggle('active', view === 'meetings');
   document.getElementById('btn-actions').classList.toggle('active', view === 'actions');
   document.getElementById('btn-projects').classList.toggle('active', view === 'projects');
+  document.getElementById('btn-trash').classList.toggle('active', view === 'trash');
   document.getElementById('btn-settings').classList.toggle('active', view === 'settings');
   if (view === 'actions') loadTaskBoard();
   if (view === 'projects') loadProjectsSettings();
+  if (view === 'trash') loadTrash();
   if (view === 'settings') loadRecordingSettings();
 }
 
@@ -484,7 +501,11 @@ function renderSidebarByDays(meetings) {
     });
   });
   list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); deleteMeeting(btn.dataset.delPath); });
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const p = btn.dataset.delPath;
+      _confirmDeleteMeeting(p, (allMeetings.find(m => m.path === p) || {}).title || '', btn.closest('.meeting-item'));
+    });
   });
 }
 
@@ -552,24 +573,62 @@ function renderSidebarByProject(meetings) {
     });
   });
   list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); deleteMeeting(btn.dataset.delPath); });
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const p = btn.dataset.delPath;
+      _confirmDeleteMeeting(p, (allMeetings.find(m => m.path === p) || {}).title || '', btn.closest('.meeting-item'));
+    });
   });
 }
 
-async function deleteMeeting(path) {
-  if (!path) return;
-  await pywebview.api.delete_meeting(path);
-  allMeetings = allMeetings.filter(m => m.path !== path);
-  renderSidebar(allMeetings);
-  if (currentPath === path) {
-    currentPath = null;
-    const panel = document.getElementById('detail-panel');
-    if (panel) panel.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-title">${t('empty_title')}</div>
-        <div class="empty-sub">${t('empty_sub')}</div>
-      </div>`;
+// ── Papelera (reuniones eliminadas) ──────────────────────────────────────────
+
+async function loadTrash() {
+  const list = document.getElementById('trash-list');
+  if (!list) return;
+  list.innerHTML = `<div class="loading">${t('loading')}</div>`;
+  let items = [];
+  try { items = await pywebview.api.list_trash(); } catch (_) {}
+  if (!items || !items.length) {
+    list.innerHTML = `<div style="color:var(--muted);font-size:13px">${t('trash_empty')}</div>`;
+    return;
   }
+  list.innerHTML = items.map(it => {
+    const id = escHtml(it.id);
+    const title = escHtml(it.title || it.stem || '');
+    const when = (it.deleted_at || '').slice(0, 10);
+    return `
+    <div class="trash-item" data-trash-id="${id}">
+      <div class="trash-item-info">
+        <div class="trash-item-title">${title}</div>
+        <div class="trash-item-meta">${escHtml(it.date || '')} · ${t('trash_deleted_at')} ${escHtml(when)} · ${it.file_count || 0} ${t('trash_files')}</div>
+      </div>
+      <div class="trash-item-actions">
+        <button class="btn btn-primary btn-sm" onclick="recoverMeeting('${id}')">${t('trash_recover')}</button>
+        <button class="btn btn-delete btn-sm" onclick="purgeTrashMeeting('${id}', '${title}')">${t('trash_delete_forever')}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function recoverMeeting(id) {
+  const ok = await pywebview.api.recover_meeting(id);
+  if (ok) {
+    showToast(t('trash_recovered'));
+    await loadTrash();
+    try { if (typeof refreshMeetingList === 'function') await refreshMeetingList(); } catch (_) {}
+  }
+}
+
+function purgeTrashMeeting(id, title) {
+  openConfirmModal(
+    t('trash_purge_confirm', title || ''),
+    async () => {
+      const ok = await pywebview.api.purge_trash_meeting(id);
+      if (ok) { showToast(t('trash_purged')); await loadTrash(); }
+    },
+    { title: t('trash_delete_forever'), okLabel: t('btn_delete') }
+  );
 }
 
 function toggleProjectSidebarGroup(pid) {
@@ -591,7 +650,7 @@ function _initMeetingContextMenu() {
   const delBtn = document.getElementById('ctx-delete-btn');
   if (!menu) return;
 
-  delBtn.onclick = () => { menu.classList.add('hidden'); _confirmDeleteMeeting(); };
+  delBtn.onclick = () => { menu.classList.add('hidden'); _confirmDeleteMeeting(_ctxPath, _ctxTitle, _ctxEl); };
 
   document.addEventListener('click', () => menu.classList.add('hidden'));
   document.addEventListener('contextmenu', e => {
@@ -614,12 +673,8 @@ function _showMeetingContextMenu(e, path, title, el) {
 }
 
 
-function _confirmDeleteMeeting() {
-  if (!_ctxPath) return;
-  // Capture all references now, before the modal opens and _ctx* might change
-  const pathToDelete  = _ctxPath;
-  const titleToDelete = _ctxTitle;
-  const elToRemove    = _ctxEl;
+function _confirmDeleteMeeting(pathToDelete, titleToDelete, elToRemove) {
+  if (!pathToDelete) return;
 
   openConfirmModal(
     t('confirm_delete_meeting', titleToDelete || ''),
@@ -1587,7 +1642,7 @@ async function loadProjectsSettings(editingId = null) {
       <div class="project-settings-row" onclick="toggleProjectDetail('${pid}')">
         <div style="min-width:0;flex:1">
           <div class="project-settings-name">${escHtml(p.name)}</div>
-          ${p.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.description)}</div>` : ''}
+          ${p.description ? `<div class="project-settings-desc">${escHtml(p.description)}</div>` : ''}
         </div>
         <span class="project-chevron">${isExpanded ? '▾' : '▸'}</span>
       </div>

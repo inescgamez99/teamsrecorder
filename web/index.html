@@ -21,6 +21,9 @@
     <span data-i18n="nav_projects">Proyectos</span>
   </button>
   <div class="nav-spacer"></div>
+  <button class="nav-btn" id="btn-trash" onclick="showView('trash')" title="Recently Deleted">
+    <span data-i18n="nav_trash">Recently Deleted</span>
+  </button>
   <button class="nav-btn" id="btn-settings" onclick="showView('settings')" title="Ajustes">
     <span data-i18n="settings_nav">Ajustes</span>
   </button>
@@ -236,6 +239,18 @@
 
       </div>
 
+    </div>
+  </div>
+</div>
+
+<div class="view hidden" id="view-trash">
+  <div class="settings-view">
+    <div class="settings-view-header">
+      <h2 data-i18n="nav_trash">Recently Deleted</h2>
+    </div>
+    <div class="settings-view-body">
+      <div class="settings-card-desc" data-i18n="trash_desc" style="margin-bottom:16px">Las reuniones eliminadas se guardan aquí. Puedes recuperarlas o borrarlas definitivamente.</div>
+      <div id="trash-list"><div class="loading" data-i18n="loading">Cargando...</div></div>
     </div>
   </div>
 </div>

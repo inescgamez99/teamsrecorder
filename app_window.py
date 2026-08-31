@@ -330,38 +330,6 @@ class AppAPI:
             log.error(f"create_action: {e}")
             return {}
 
-    def delete_meeting(self, path: str) -> bool:
-        """Elimina todos los ficheros de una reunión (minutas, HTML, acciones, transcript, WAV)."""
-        md_path = Path(path)
-        stem = md_path.stem
-        deleted = False
-        for p in [
-            md_path,
-            md_path.with_suffix('.html'),
-            md_path.parent / f"{stem}_actions.json",
-            md_path.parent / f"{stem}_transcript.txt",
-        ]:
-            if p.exists():
-                try:
-                    p.unlink()
-                    deleted = True
-                except Exception as e:
-                    log.warning(f"delete_meeting: {p.name}: {e}")
-        # WAV en recordings/processed/
-        m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', stem)
-        if m:
-            y, mo, d, hh, mm = m.groups()
-            wav_stem = f"{y}-{mo}-{d}_{hh}-{mm}"
-            for folder in [RECORDINGS_DIR / 'processed', RECORDINGS_DIR]:
-                for wav in folder.glob(f"{wav_stem}*.wav"):
-                    try:
-                        wav.unlink()
-                        deleted = True
-                    except Exception as e:
-                        log.warning(f"delete_meeting WAV: {wav.name}: {e}")
-        log.info(f"delete_meeting: {stem} (deleted={deleted})")
-        return deleted
-
     def delete_action(self, path: str, index: int) -> bool:
         """Elimina una acción del JSON de la reunión."""
         from actions_enricher import get_actions_path
@@ -637,21 +605,111 @@ class AppAPI:
             return False
 
     def delete_meeting(self, path: str) -> bool:
-        """Elimina una reunión y todos sus archivos asociados."""
+        """Mueve una reunión y sus ficheros (incluido el WAV) a la papelera.
+        Borrado suave: recuperable desde la vista Papelera."""
         md_path = Path(path)
-        if not md_path.exists():
-            return False
+        stem = md_path.stem
+        trash_root = MINUTES_DIR.parent / 'trash'
+        trash_dir = trash_root / stem
+        n = 2
+        while trash_dir.exists():
+            trash_dir = trash_root / f"{stem}__{n}"
+            n += 1
         try:
-            parent = md_path.parent
-            stem = md_path.stem
-            for suf in ['.md', '.html', '_actions.json', '_transcript.txt']:
-                f = parent / f"{stem}{suf}"
+            trash_dir.mkdir(parents=True, exist_ok=True)
+            candidates = [
+                md_path,
+                md_path.with_suffix('.html'),
+                md_path.parent / f"{stem}_actions.json",
+                md_path.parent / f"{stem}_transcript.txt",
+            ]
+            m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', stem)
+            if m:
+                y, mo, d, hh, mm = m.groups()
+                wav_stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+                for folder in [RECORDINGS_DIR / 'processed', RECORDINGS_DIR]:
+                    if folder.exists():
+                        candidates.extend(folder.glob(f"{wav_stem}*.wav"))
+            files_meta = []
+            for f in candidates:
                 if f.exists():
-                    f.unlink()
-            log.info(f"delete_meeting: {stem}")
+                    try:
+                        shutil.move(str(f), str(trash_dir / f.name))
+                        files_meta.append({'name': f.name, 'orig_dir': str(f.parent)})
+                    except Exception as e:
+                        log.warning(f"delete_meeting move {f.name}: {e}")
+            meta = _parse_stem(stem)
+            (trash_dir / '_trash_meta.json').write_text(json.dumps({
+                'stem':       stem,
+                'title':      meta['title'],
+                'date':       meta['date'],
+                'time':       meta['time'],
+                'deleted_at': datetime.now().isoformat(),
+                'files':      files_meta,
+            }, ensure_ascii=False, indent=2), encoding='utf-8')
+            log.info(f"delete_meeting (papelera): {stem} → {trash_dir.name} ({len(files_meta)} ficheros)")
             return True
         except Exception as e:
             log.warning(f"delete_meeting: {e}")
+            return False
+
+    def list_trash(self) -> list:
+        """Devuelve las reuniones en la papelera, más recientes primero."""
+        trash_root = MINUTES_DIR.parent / 'trash'
+        items = []
+        if not trash_root.exists():
+            return items
+        for d in trash_root.iterdir():
+            meta_f = d / '_trash_meta.json'
+            if not d.is_dir() or not meta_f.exists():
+                continue
+            try:
+                meta = json.loads(meta_f.read_text(encoding='utf-8'))
+                meta['id'] = d.name
+                meta['file_count'] = len(meta.get('files', []))
+                items.append(meta)
+            except Exception:
+                pass
+        items.sort(key=lambda x: x.get('deleted_at', ''), reverse=True)
+        return items
+
+    def recover_meeting(self, trash_id: str) -> bool:
+        """Restaura una reunión desde la papelera a sus ubicaciones originales."""
+        trash_dir = MINUTES_DIR.parent / 'trash' / trash_id
+        meta_f = trash_dir / '_trash_meta.json'
+        if not meta_f.exists():
+            return False
+        try:
+            meta = json.loads(meta_f.read_text(encoding='utf-8'))
+            for fm in meta.get('files', []):
+                src = trash_dir / fm['name']
+                dst_dir = Path(fm.get('orig_dir', ''))
+                if not str(dst_dir):
+                    continue
+                dst_dir.mkdir(parents=True, exist_ok=True)
+                if src.exists():
+                    try:
+                        shutil.move(str(src), str(dst_dir / fm['name']))
+                    except Exception as e:
+                        log.warning(f"recover_meeting move {fm['name']}: {e}")
+            shutil.rmtree(trash_dir, ignore_errors=True)
+            log.info(f"recover_meeting: {trash_id}")
+            return True
+        except Exception as e:
+            log.warning(f"recover_meeting: {e}")
+            return False
+
+    def purge_trash_meeting(self, trash_id: str) -> bool:
+        """Elimina permanentemente una entrada de la papelera."""
+        trash_dir = MINUTES_DIR.parent / 'trash' / trash_id
+        if not trash_dir.exists():
+            return False
+        try:
+            shutil.rmtree(trash_dir, ignore_errors=True)
+            log.info(f"purge_trash_meeting: {trash_id}")
+            return True
+        except Exception as e:
+            log.warning(f"purge_trash_meeting: {e}")
             return False
 
     def set_meeting_project(self, path: str, project_id: str) -> bool:
