@@ -2180,8 +2180,9 @@ function onSearch(query) {
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
 async function openMinutesInClaude(path) {
-  showToast(t('toast_claude'));
-  await pywebview.api.open_minutes_in_claude(path, currentLang);
+  const ok = await pywebview.api.open_minutes_in_claude(path, currentLang);
+  if (ok) showToast(t('toast_claude'));
+  else showToast(currentLang === 'es' ? 'No hay transcripción disponible para esta reunión' : 'No transcript available for this meeting', 'error');
 }
 
 

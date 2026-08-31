@@ -830,7 +830,10 @@ class AppAPI:
                 folder_path = PROJECT_DIR / folder
                 if not folder_path.exists():
                     continue
-                candidates = list(folder_path.glob(f"{stem}*_transcript.txt"))
+                candidates = [
+                    f for ext in ('_transcript.txt', '_transcript.lang')
+                    for f in folder_path.glob(f"{stem}*{ext}")
+                ]
                 if candidates:
                     try:
                         transcript_content = candidates[0].read_text(encoding='utf-8')
