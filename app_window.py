@@ -846,53 +846,44 @@ class AppAPI:
             except Exception:
                 transcript_content = ''
 
-        if lang == 'en':
-            context_label = "TRANSCRIPT" if using_transcript else "MEETING NOTES"
-            context_note  = "" if using_transcript else "(transcript not found — using meeting notes as fallback)\n"
-            src_word      = "transcript" if using_transcript else "notes"
-            greeting_instruction = (
-                f"The {context_label.lower()} above is your background context — do NOT summarise or repeat it. "
-                f"Write only a single short sentence acknowledging you've read the {src_word} for '{title}' "
-                "and asking if there's any topic they'd like to explore further or any question they have. "
-                "Nothing else. No bullet points, no summary, no headers."
-            )
-            lang_instruction = "Respond always in English throughout the conversation."
-        else:
-            context_label = "TRANSCRIPCIÓN" if using_transcript else "NOTAS DE LA REUNIÓN"
-            context_note  = "" if using_transcript else "(transcripción no encontrada — usando las notas como alternativa)\n"
-            src_word      = "transcripción" if using_transcript else "notas"
-            greeting_instruction = (
-                f"La {src_word} anterior es tu contexto — NO la resumas ni la repitas. "
-                f"Escribe únicamente una frase corta diciendo que ya has leído la {src_word} de '{title}' "
-                "y preguntando si hay algún tema en el que quiera profundizar o alguna duda. "
-                "Nada más. Sin bullets, sin resumen, sin cabeceras."
-            )
-            lang_instruction = "Responde siempre en español durante toda la conversación."
+        if not using_transcript:
+            log.warning(f"open_minutes_in_claude: transcripción no encontrada para {md_path.stem}")
+            return False
 
-        # Escribir contexto (transcripción) a archivo separado para --append-system-prompt-file
-        # Esto evita el límite de longitud de línea de comandos de Windows (~32KB)
+        if lang == 'en':
+            greeting_text = f"I've read the transcript for \"{title}\". What would you like to explore?"
+            lang_instruction = "Respond always in English throughout the conversation."
+            context_label = "TRANSCRIPT"
+        else:
+            greeting_text = f"He leído la transcripción de \"{title}\". ¿Hay algún tema en el que quieras profundizar?"
+            lang_instruction = "Responde siempre en español durante toda la conversación."
+            context_label = "TRANSCRIPCIÓN"
+
         context_content = '\n'.join([
             lang_instruction,
+            "The transcript below is your background context. Answer questions about this meeting based on it.",
+            "Do NOT summarise or repeat the transcript unless explicitly asked.",
             "",
             f"## {context_label} — {title} ({date})",
-            context_note + transcript_content,
+            transcript_content,
         ])
         tmp_dir     = Path(tempfile.mkdtemp())
         tmp_context = tmp_dir / 'context.txt'
         tmp_context.write_text(context_content, encoding='utf-8')
 
-        ps1 = tmp_dir / 'chat.ps1'
-        # Greeting goes to a separate file to avoid PS quoting/encoding issues.
-        # PS1 written with UTF-8 BOM so PowerShell 5.1 reads it as UTF-8
-        # (without BOM it falls back to ANSI and the em-dash in the greeting
-        # gets decoded as a curly-quote 0x94 which PS treats as a string terminator).
+        # Print greeting via Write-Host so it appears without a "Human:" turn.
+        # Claude starts in interactive mode with no initial user message.
         tmp_greeting = tmp_dir / 'greeting.txt'
-        tmp_greeting.write_text(greeting_instruction, encoding='utf-8-sig')
+        tmp_greeting.write_text(greeting_text, encoding='utf-8-sig')
+        ps1 = tmp_dir / 'chat.ps1'
         ps1_lines = [
             '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
             f'Set-Location "{MINUTES_DIR}"',
-            f'$g = (Get-Content -Raw -Encoding UTF8 "{tmp_greeting}").Trim()',
-            f'claude --append-system-prompt-file "{tmp_context}" "$g"',
+            f'$gr = (Get-Content -Raw -Encoding UTF8 "{tmp_greeting}").Trim()',
+            'Write-Host ""',
+            'Write-Host "  $gr" -ForegroundColor Cyan',
+            'Write-Host ""',
+            f'claude --append-system-prompt-file "{tmp_context}"',
         ]
         ps1.write_bytes(('\n'.join(ps1_lines)).encode('utf-8-sig'))
 
