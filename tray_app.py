@@ -217,6 +217,7 @@ class TrayApp:
         from html_exporter import export_to_html
         from actions_enricher import enrich_and_save
 
+        s = _STR.get(get_ui_language(), _STR['en'])
         transcript_path = get_transcript_path(wav_path)
         partial_path = wav_path.parent / f"{wav_path.stem}.partial"
 
