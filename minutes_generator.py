@@ -29,6 +29,10 @@ TITULO: Cierre Trimestre Ventas
 
 Despues del titulo: una linea en blanco y luego el markdown completo de las minutas.
 
+## CABECERA FIJA DE METADATOS
+
+La primera linea del cuerpo de las minutas (justo despues del TITULO y la linea en blanco) debe ser SIEMPRE la linea de metadatos que te indican en el prompt del usuario. Nunca muevas la fecha/hora/duracion a otra seccion ni la omitas. Nunca inventes un formato de cabecera distinto.
+
 ## Seccion de Acciones Pendientes — regla critica
 
 Hay UNA SOLA seccion para todas las acciones: "Acciones Pendientes" (o "Pending Actions" en ingles).
@@ -134,13 +138,29 @@ def _build_prompt(transcript: str, recording_path: Path, extra_context: str | No
                     else f"Fecha: {fecha}  Hora de inicio: {hora}  Duración estimada: {duracion}"
     ctx_label     = "## Additional context from user:" if lang == 'en' else "## Contexto adicional del usuario:"
 
+    header_block = (
+        f"**Date:** {fecha} | **Start:** {hora} | **Est. duration:** {duracion}"
+        if lang == 'en' else
+        f"**Fecha:** {fecha} | **Inicio:** {hora} | **Duración estimada:** {duracion}"
+    )
+    header_instruction = (
+        "After the TITULO line (and a blank line), the FIRST line of the minutes body must be exactly:"
+        if lang == 'en' else
+        "Después de la línea TITULO (y una línea en blanco), la PRIMERA línea del cuerpo de las minutas debe ser exactamente:"
+    )
+
     parts = [
+        f"## Context / Contexto",
         date_label,
         "",
         "## Transcript" if lang == 'en' else "## Transcripción",
         transcript,
         "",
         f"## {section_label}",
+        f"{header_instruction}",
+        f"`{header_block}`",
+        "",
+        "(Then a blank line, then the sections in this order:)",
     ] + [f"- {s}" for s in sections]
 
     if extra_context:
