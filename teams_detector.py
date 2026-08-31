@@ -58,15 +58,15 @@ def _check_window_titles(pids: list[int]) -> tuple[bool, str | None]:
                             meeting_name = candidate
                     return
 
-                # Teams 2.0: cualquier "<No-genérico> | ... | Microsoft Teams"
-                # Formatos observados: "Reunión | Org | email | MS Teams",
-                # "placeholder | MS Teams", "Reunión | MS Teams" (sin email)
-                if raw.endswith('Microsoft Teams') and '|' in raw:
+                # Teams 2.0: "<Meeting> | <Org> [| email] | Microsoft Teams"
+                # Requiere 2+ pipes para evitar falsos positivos con chats
+                # en ventana propia ("Persona | MS Teams", 1 pipe).
+                if raw.endswith('Microsoft Teams') and raw.count('|') >= 2:
                     parts = [p.strip() for p in raw.split('|')]
                     first = parts[0].strip()
                     if first.lower() not in _TEAMS_GENERIC_PAGES:
                         found = True
-                        if meeting_name is None and first.lower() != 'placeholder':
+                        if meeting_name is None:
                             meeting_name = first
             except Exception:
                 pass
@@ -106,6 +106,7 @@ class TeamsCallDetector:
         self._required_name_chg = max(required_confirmations * 5, 10)  # polls cambio de reunión (10 = 30s)
         self._in_call = False
         self._call_streak = 0
+        self._call_streak_has_title = False  # True si algún poll del streak tuvo título
         self._no_call_streak = 0
         self._current_meeting_name: str | None = None
         self._name_change_candidate: str | None = None
@@ -153,9 +154,11 @@ class TeamsCallDetector:
                         audio_active = _check_audio_session(pids)
                         title_active, detected_name = _check_window_titles(pids)
 
-                    # Para INICIAR: título O audio (Teams 2.0 en llamadas 1:1 muestra
-                    # "Chat | Nombre | MS Teams" que no tiene título de reunión).
-                    # Para MANTENER: ídem.
+                    # Para INICIAR: título O audio. Audio solo cubre llamadas 1:1 en
+                    # Teams 2.0 donde el título siempre es genérico. Para evitar falsos
+                    # positivos por notificaciones (< 18s) se exige 6 polls cuando es
+                    # audio sin título, vs 2 polls cuando hay título confirmado.
+                    # Para MANTENER: audio O título es suficiente.
                     active = title_active or audio_active
 
                     # Detectar cuándo el título vuelve a ser genérico (señal fuerte de fin)
@@ -164,15 +167,20 @@ class TeamsCallDetector:
 
                     if active:
                         self._call_streak += 1
+                        if title_active:
+                            self._call_streak_has_title = True
                         self._no_call_streak = 0
                     else:
                         self._no_call_streak += 1
                         self._call_streak = 0
+                        self._call_streak_has_title = False
                         detected_name = None
 
-                    if not self._in_call and self._call_streak >= self._required:
+                    required_now = self._required if self._call_streak_has_title else self._required * 3
+                    if not self._in_call and self._call_streak >= required_now:
                         self._in_call = True
                         self._title_went_generic = False
+                        self._call_streak_has_title = False
                         self._current_meeting_name = detected_name
                         log.info("Llamada Teams detectada")
                         if self.on_call_started:
