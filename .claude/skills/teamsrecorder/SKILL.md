@@ -78,13 +78,14 @@ Start-Process -FilePath "$env:USERPROFILE\Documents\TeamsRecorder\install_autost
 
 Esto registra TeamsRecorder en el Programador de tareas de Windows para que arranque automáticamente.
 
-### 4b. Instalar el hook de auto-reinicio tras git pull
+### 4b. Instalar los hooks de git
 
 ```powershell
 Copy-Item "$env:USERPROFILE\Documents\TeamsRecorder\hooks\post-merge" "$env:USERPROFILE\Documents\TeamsRecorder\.git\hooks\post-merge"
+Copy-Item "$env:USERPROFILE\Documents\TeamsRecorder\hooks\pre-push"   "$env:USERPROFILE\Documents\TeamsRecorder\.git\hooks\pre-push"
 ```
 
-Esto hace que cada vez que el usuario ejecute `git pull`, la app se reinicie automáticamente con los cambios nuevos sin tener que hacerlo manualmente.
+El hook `post-merge` reinicia la app automáticamente tras cada `git pull`. El hook `pre-push` solo es relevante para el owner del repo (notificaciones al equipo).
 
 ### 5. Arrancar la app por primera vez
 
@@ -125,10 +126,11 @@ git -C "$env:USERPROFILE\Documents\TeamsRecorder" pull
 
 Muestra al usuario qué ficheros han cambiado.
 
-### 2b. Asegurarse de que el hook de auto-reinicio está instalado
+### 2b. Asegurarse de que los hooks están instalados
 
 ```powershell
 Copy-Item "$env:USERPROFILE\Documents\TeamsRecorder\hooks\post-merge" "$env:USERPROFILE\Documents\TeamsRecorder\.git\hooks\post-merge" -Force
+Copy-Item "$env:USERPROFILE\Documents\TeamsRecorder\hooks\pre-push"   "$env:USERPROFILE\Documents\TeamsRecorder\.git\hooks\pre-push"   -Force
 ```
 
 ### 3. Actualizar dependencias (por si han cambiado)
