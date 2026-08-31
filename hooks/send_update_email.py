@@ -69,7 +69,7 @@ def _manual_body(commits_text: str) -> str:
 
 
 def main():
-    commits_text = sys.stdin.read().strip()
+    commits_text = sys.stdin.buffer.read().decode('utf-8', errors='replace').strip()
     if not commits_text:
         return
 
