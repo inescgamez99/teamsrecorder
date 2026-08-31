@@ -907,6 +907,69 @@ class AppAPI:
 
         return True
 
+    def open_minutes_in_claude_app(self, path: str, lang: str = 'es') -> bool:
+        """Copia el transcript al portapapeles listo para pegar en Claude y abre claude.ai."""
+        import webbrowser
+        md_path = Path(path)
+        if not md_path.exists():
+            return False
+
+        # Buscar transcript (misma lógica que open_minutes_in_claude)
+        transcript_content = ''
+        sibling = md_path.with_name(md_path.stem + '_transcript.txt')
+        if sibling.exists():
+            try:
+                transcript_content = sibling.read_text(encoding='utf-8')
+            except Exception:
+                pass
+        if not transcript_content:
+            m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+            if m:
+                y, mo, d, hh, mm = m.groups()
+                stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+                for folder in ['recordings/processed', 'recordings']:
+                    folder_path = PROJECT_DIR / folder
+                    if not folder_path.exists():
+                        continue
+                    candidates = list(folder_path.glob(f"{stem}*_transcript.txt"))
+                    if candidates:
+                        try:
+                            transcript_content = candidates[0].read_text(encoding='utf-8')
+                        except Exception:
+                            pass
+                        break
+        if not transcript_content:
+            return False
+
+        meta  = _parse_stem(md_path.stem)
+        title = meta['title']
+        date  = meta.get('date', '')
+
+        if lang == 'en':
+            prompt = (
+                f'I have the transcript of the meeting "{title}" from {date}. '
+                f'Use it as context to answer my questions:\n\n{transcript_content}'
+            )
+        else:
+            prompt = (
+                f'Tengo el transcript de la reunión "{title}" del {date}. '
+                f'Úsalo como contexto para responder mis preguntas:\n\n{transcript_content}'
+            )
+
+        try:
+            # Copiar al portapapeles via PowerShell (evita dependencias extra)
+            subprocess.run(
+                [_PWSH, '-NoProfile', '-Command',
+                 '$input | Set-Clipboard'],
+                input=prompt, text=True, encoding='utf-8',
+                capture_output=True,
+            )
+        except Exception as e:
+            log.warning(f"open_minutes_in_claude_app clipboard error: {e}")
+
+        webbrowser.open('https://claude.ai/new')
+        return True
+
     def open_html(self, path: str) -> bool:
         """Abre el HTML exportado de las minutas en el navegador predeterminado."""
         import webbrowser

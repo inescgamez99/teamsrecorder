@@ -2179,10 +2179,58 @@ function onSearch(query) {
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
-async function openMinutesInClaude(path) {
-  const ok = await pywebview.api.open_minutes_in_claude(path, currentLang);
-  if (ok) showToast(t('toast_claude'));
-  else showToast(currentLang === 'es' ? 'No hay transcripción disponible para esta reunión' : 'No transcript available for this meeting', 'error');
+function openMinutesInClaude(path) {
+  // Mostrar picker Terminal / App
+  const existing = document.getElementById('claude-mode-picker');
+  if (existing) existing.remove();
+
+  const btn = document.getElementById('btn-claude');
+  const rect = btn.getBoundingClientRect();
+
+  const picker = document.createElement('div');
+  picker.id = 'claude-mode-picker';
+  picker.className = 'claude-mode-picker';
+  picker.style.top  = (rect.bottom + 6) + 'px';
+  picker.style.left = rect.left + 'px';
+
+  const noTranscript = currentLang === 'es'
+    ? 'No hay transcripción disponible para esta reunión'
+    : 'No transcript available for this meeting';
+
+  const terminalLabel = currentLang === 'es' ? 'Terminal' : 'Terminal';
+  const appLabel      = currentLang === 'es' ? 'App' : 'App';
+
+  picker.innerHTML = `
+    <button class="claude-mode-opt" id="claude-opt-terminal">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      ${terminalLabel}
+    </button>
+    <button class="claude-mode-opt" id="claude-opt-app">
+      <svg width="13" height="13" viewBox="0 0 248 248" fill="currentColor"><path d="M13.827 3.52h-3.654L5.277 20.48h3.4l.85-2.807h5.946l.85 2.807h3.4L13.827 3.52zm-3.8 11.495 2.173-7.153 2.174 7.153H10.027z"/></svg>
+      ${appLabel}
+    </button>`;
+
+  document.body.appendChild(picker);
+
+  const close = (e) => { if (!picker.contains(e.target) && e.target !== btn) { picker.remove(); document.removeEventListener('mousedown', close); } };
+  setTimeout(() => document.addEventListener('mousedown', close), 0);
+
+  document.getElementById('claude-opt-terminal').onclick = async () => {
+    picker.remove();
+    document.removeEventListener('mousedown', close);
+    const ok = await pywebview.api.open_minutes_in_claude(path, currentLang);
+    if (!ok) showToast(noTranscript, 'error');
+  };
+
+  document.getElementById('claude-opt-app').onclick = async () => {
+    picker.remove();
+    document.removeEventListener('mousedown', close);
+    const ok = await pywebview.api.open_minutes_in_claude_app(path, currentLang);
+    if (ok) showToast(currentLang === 'es'
+      ? 'Transcript copiado — pégalo en Claude'
+      : 'Transcript copied — paste it in Claude');
+    else showToast(noTranscript, 'error');
+  };
 }
 
 

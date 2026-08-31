@@ -1115,6 +1115,21 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui,
 
 .btn.icon-btn { display: inline-flex; align-items: center; gap: 5px; }
 
+/* Picker Terminal / App del botón Claude */
+.claude-mode-picker {
+  position: fixed; z-index: 9999;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); padding: 4px;
+  display: flex; flex-direction: column; gap: 2px; min-width: 130px;
+}
+.claude-mode-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border: none; border-radius: 6px;
+  background: transparent; color: var(--text); font-size: 13px;
+  cursor: pointer; text-align: left; transition: background 0.1s;
+}
+.claude-mode-opt:hover { background: var(--surface2); }
+
 /* Barra de acciones — iconos de reunión */
 .action-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
