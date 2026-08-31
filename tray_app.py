@@ -160,13 +160,37 @@ class TrayApp:
                 rec_str = f'Recording {m:02d}:{s:02d}'
                 proc = self._processing_msg
                 tooltip = f'TeamsRecorder - {rec_str}' + (f' | {proc}' if proc else '')
-                # Solo actualizar el título (el ícono ya es el rojo correcto)
                 try:
                     if self._icon:
                         self._icon.title = tooltip
                 except Exception:
                     pass
             self._write_status()
+            self._check_pending_notification()
+
+    def _check_pending_notification(self):
+        notification_file = PROJECT_DIR / '.pending_notification.txt'
+        if not notification_file.exists():
+            return
+        try:
+            commits_text = notification_file.read_text(encoding='utf-8').strip()
+            notification_file.unlink()
+        except Exception:
+            return
+        if not commits_text:
+            return
+        threading.Thread(
+            target=self._send_push_notification, args=(commits_text,),
+            daemon=True, name='PushNotification',
+        ).start()
+
+    def _send_push_notification(self, commits_text: str):
+        try:
+            from hooks.send_update_email import send_update_email
+            ok = send_update_email(commits_text)
+            log.info(f"Push notification email {'enviado' if ok else 'fallido'}")
+        except Exception as e:
+            log.error(f"Push notification error: {e}")
 
     def _on_recording_done(self, wav_path: Path):
         self._pipeline_queue.put(wav_path)
