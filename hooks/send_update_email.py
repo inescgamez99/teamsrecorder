@@ -4,10 +4,21 @@ via Outlook. Se invoca desde el hook pre-push con los commits en stdin.
 """
 import subprocess
 import sys
+import shutil
 from datetime import datetime
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.parent
+
+# Reutilizar la lógica de config.py para encontrar el exe real de claude
+sys.path.insert(0, str(PROJECT_DIR))
+try:
+    from config import CLAUDE_BIN as _CLAUDE_BIN
+except Exception:
+    _CLAUDE_BIN = shutil.which('claude')
+if not _CLAUDE_BIN:
+    print("send_update_email: claude no encontrado en PATH, saltando.")
+    sys.exit(0)
 
 
 def main():
@@ -45,7 +56,7 @@ Escribe el cuerpo de un email de notificación con estas reglas:
 
     try:
         result = subprocess.run(
-            ['claude', '-p'],
+            [_CLAUDE_BIN, '-p'],
             input=prompt,
             capture_output=True,
             text=True,
