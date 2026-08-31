@@ -820,26 +820,33 @@ class AppAPI:
         title = meta['title']
         date  = meta.get('date', '')
 
-        # Find the paired transcript (recordings/processed/ or recordings/)
+        # Buscar transcript: primero junto a las notas (minutes/), luego en recordings/
         transcript_content = ''
-        m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
-        if m:
-            y, mo, d, hh, mm = m.groups()
-            stem = f"{y}-{mo}-{d}_{hh}-{mm}"
-            for folder in ['recordings/processed', 'recordings']:
-                folder_path = PROJECT_DIR / folder
-                if not folder_path.exists():
-                    continue
-                candidates = [
-                    f for ext in ('_transcript.txt', '_transcript.lang')
-                    for f in folder_path.glob(f"{stem}*{ext}")
-                ]
-                if candidates:
-                    try:
-                        transcript_content = candidates[0].read_text(encoding='utf-8')
-                    except Exception:
-                        pass
-                    break
+        # 1. Mismo directorio que el .md: <stem>_transcript.txt
+        sibling = md_path.with_name(md_path.stem + '_transcript.txt')
+        if sibling.exists():
+            try:
+                transcript_content = sibling.read_text(encoding='utf-8')
+            except Exception:
+                pass
+
+        # 2. Fallback: recordings/processed y recordings/ con fecha reformateada
+        if not transcript_content:
+            m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+            if m:
+                y, mo, d, hh, mm = m.groups()
+                stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+                for folder in ['recordings/processed', 'recordings']:
+                    folder_path = PROJECT_DIR / folder
+                    if not folder_path.exists():
+                        continue
+                    candidates = list(folder_path.glob(f"{stem}*_transcript.txt"))
+                    if candidates:
+                        try:
+                            transcript_content = candidates[0].read_text(encoding='utf-8')
+                        except Exception:
+                            pass
+                        break
 
         # Fall back to meeting minutes if no transcript file exists
         using_transcript = bool(transcript_content)
