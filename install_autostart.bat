@@ -1,10 +1,14 @@
 @echo off
-set STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+set "VBS=%STARTUP%\TeamsRecorder.vbs"
 
 rem Eliminar entrada antigua si existe
-del /Q "%STARTUP%\TeamsRecorder.vbs" 2>nul
+del /Q "%VBS%" 2>nul
 
-rem Instalar el watchdog (auto-reinicia si se cae)
-copy /Y "%~dp0start_watchdog.vbs" "%STARTUP%\TeamsRecorder.vbs"
+rem Crear lanzador en el inicio con la ruta ABSOLUTA a watchdog.ps1
+rem (%~dp0 = carpeta de este .bat, con backslash final)
+> "%VBS%" echo CreateObject("WScript.Shell").Run "powershell.exe -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""%~dp0watchdog.ps1""", 0, False
+
 echo TeamsRecorder watchdog instalado en el inicio de Windows.
+echo Ruta watchdog: %~dp0watchdog.ps1
 pause
