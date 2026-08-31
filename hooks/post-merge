@@ -1,0 +1,35 @@
+#!/bin/sh
+# TeamsRecorder — post-merge hook
+# Se ejecuta automaticamente tras cada git pull.
+# Si hay una grabacion en curso, aborta el reinicio y avisa al usuario.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
+  \$dir = (git rev-parse --show-toplevel) -replace '/', '\\'
+  \$statusFile = \"\$dir\\.pipeline_status.json\"
+  if (Test-Path \$statusFile) {
+    try {
+      \$status = Get-Content \$statusFile -Raw | ConvertFrom-Json
+      \$recording = \$status.jobs | Where-Object { \$_.stage -eq 'recording' }
+      if (\$recording) {
+        Write-Host ''
+        Write-Host 'TeamsRecorder: hay una grabacion en curso.' -ForegroundColor Yellow
+        Write-Host '   Los cambios ya se han descargado. Reinicia la app manualmente cuando termine la reunion.' -ForegroundColor Yellow
+        Write-Host ''
+        Add-Type -AssemblyName System.Windows.Forms
+        \$notify = New-Object System.Windows.Forms.NotifyIcon
+        \$notify.Icon = [System.Drawing.SystemIcons]::Warning
+        \$notify.BalloonTipTitle = 'TeamsRecorder'
+        \$notify.BalloonTipText = 'Hay una grabacion en curso. Reinicia la app manualmente cuando termine la reunion.'
+        \$notify.Visible = \$true
+        \$notify.ShowBalloonTip(8000)
+        Start-Sleep -Seconds 2
+        \$notify.Dispose()
+        exit 0
+      }
+    } catch {}
+  }
+  Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force
+  Start-Sleep -Seconds 1
+  pip install -r \"\$dir\\requirements.txt\" --quiet 2>\$null
+  Start-Process python -ArgumentList 'main.py' -WorkingDirectory \"\$dir\" -WindowStyle Hidden
+  Write-Host 'TeamsRecorder reiniciado con los ultimos cambios.' -ForegroundColor Green
+"

@@ -296,6 +296,72 @@ class AppAPI:
         except Exception:
             return False
 
+    def create_action(self, path: str, title: str, assignee: str = '',
+                      deadline: str = '') -> dict:
+        """Crea una acción manual en el JSON de la reunión. Devuelve la acción creada o {}."""
+        from actions_enricher import get_actions_path
+        md_path = Path(path)
+        ap = get_actions_path(md_path)
+        try:
+            if ap.exists():
+                data = json.loads(ap.read_text(encoding='utf-8'))
+            else:
+                data = {'minutes': path, 'project_id': '', 'actions': []}
+            actions = data.get('actions', [])
+            next_index = max((a.get('index', -1) for a in actions), default=-1) + 1
+            action = {
+                'index': next_index,
+                'title': title.strip(),
+                'type': 'human',
+                'prompt_original': '',
+                'prompt_enriched': '',
+                'assignee': assignee.strip(),
+                'deadline': deadline.strip(),
+                'executed': False,
+                'claude_executable': False,
+                'source': 'manual',
+                'created_at': datetime.now().strftime('%Y-%m-%d'),
+            }
+            actions.append(action)
+            data['actions'] = actions
+            ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return action
+        except Exception as e:
+            log.error(f"create_action: {e}")
+            return {}
+
+    def delete_meeting(self, path: str) -> bool:
+        """Elimina todos los ficheros de una reunión (minutas, HTML, acciones, transcript, WAV)."""
+        md_path = Path(path)
+        stem = md_path.stem
+        deleted = False
+        for p in [
+            md_path,
+            md_path.with_suffix('.html'),
+            md_path.parent / f"{stem}_actions.json",
+            md_path.parent / f"{stem}_transcript.txt",
+        ]:
+            if p.exists():
+                try:
+                    p.unlink()
+                    deleted = True
+                except Exception as e:
+                    log.warning(f"delete_meeting: {p.name}: {e}")
+        # WAV en recordings/processed/
+        m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', stem)
+        if m:
+            y, mo, d, hh, mm = m.groups()
+            wav_stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+            for folder in [RECORDINGS_DIR / 'processed', RECORDINGS_DIR]:
+                for wav in folder.glob(f"{wav_stem}*.wav"):
+                    try:
+                        wav.unlink()
+                        deleted = True
+                    except Exception as e:
+                        log.warning(f"delete_meeting WAV: {wav.name}: {e}")
+        log.info(f"delete_meeting: {stem} (deleted={deleted})")
+        return deleted
+
     def delete_action(self, path: str, index: int) -> bool:
         """Elimina una acción del JSON de la reunión."""
         from actions_enricher import get_actions_path
@@ -624,6 +690,16 @@ class AppAPI:
         except Exception as e:
             log.error(f"delete_project: {e}")
             return False
+
+    def get_pipeline_status(self) -> dict:
+        """Lee el estado del pipeline (grabación/transcripción) escrito por el daemon."""
+        try:
+            p = PROJECT_DIR / '.pipeline_status.json'
+            if p.exists():
+                return json.loads(p.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+        return {'jobs': []}
 
     def get_settings(self) -> dict:
         try:
@@ -970,7 +1046,7 @@ class AppAPI:
             try:
                 env = _clean_env_panel()
                 proc = subprocess.Popen(
-                    [_CLAUDE_BIN, '-p', '--dangerously-skip-permissions'],
+                    [_CLAUDE_BIN, '-p', '--allowedTools', 'Edit,Write,Read,Bash,Glob,Grep'],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -1139,7 +1215,7 @@ class AppAPI:
             try:
                 env = _clean_env_panel()
                 proc = subprocess.Popen(
-                    [_CLAUDE_BIN, '-p', '--dangerously-skip-permissions'],
+                    [_CLAUDE_BIN, '-p', '--allowedTools', 'Edit,Write,Read,Bash,Glob,Grep'],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -1279,6 +1355,13 @@ def open_app(initial_path: str = None):
     que ya está ocupado por pystray).
     """
     import sys
+    if os.name == 'nt':
+        try:
+            import ctypes
+            # Permite al proceso hijo poner su ventana en primer plano
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+        except Exception:
+            pass
     args = [sys.executable, str(Path(__file__).resolve())]
     if initial_path:
         args.append(initial_path)
@@ -1338,6 +1421,15 @@ def _run_window(initial_path: str = None):
             _set_taskbar_icon('TeamsRecorder', str(_icon))
         if initial_path:
             win.evaluate_js(f"if(typeof openMeeting==='function') openMeeting({json.dumps(initial_path)})")
+        if os.name == 'nt':
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.FindWindowW(None, 'TeamsRecorder')
+                if hwnd:
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
 
     win.events.loaded += on_ready
     webview.start(icon=str(_icon) if _icon.exists() else None, debug=False)

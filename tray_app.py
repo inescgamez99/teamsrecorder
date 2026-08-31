@@ -12,22 +12,28 @@ _STR = {
     'es': dict(
         record_now='Grabar ahora', stop='Parar grabacion',
         add_context='Añadir contexto a grabacion',
+        cancel_recording='Cancelar grabacion (sin guardar)',
         view_minutes='Abrir la aplicacion',
         quit='Salir',
         recordings_queued='{n} grabaciones en cola',
         recordings_pending='{n} grabacion(es) pendiente(s) de procesar',
         action_items='Generando acciones...',
         ready='Minutas y acciones listas',
+        transcription_failed='No se pudo transcribir la grabación. Revisa el log para más detalles.',
+        minutes_failed='No se pudieron generar las minutas. Revisa el log para más detalles.',
     ),
     'en': dict(
         record_now='Record now', stop='Stop recording',
         add_context='Add context to recording',
+        cancel_recording='Cancel recording (discard)',
         view_minutes='Open the app',
         quit='Quit',
         recordings_queued='{n} recordings in queue',
         recordings_pending='{n} recording(s) pending processing',
         action_items='Generating action items...',
         ready='Meeting minutes & action items ready',
+        transcription_failed='Transcription failed. Check the log for details.',
+        minutes_failed='Minutes generation failed. Check the log for details.',
     ),
 }
 
@@ -60,6 +66,7 @@ class TrayApp:
 
         threading.Thread(target=self._pipeline_loop, daemon=True, name='PipelineWorker').start()
         threading.Thread(target=self._recover_pending, daemon=True, name='PipelineRecovery').start()
+        threading.Thread(target=self._notification_poller, daemon=True, name='NotificationPoller').start()
 
     def start(self):
         import pystray
@@ -74,13 +81,33 @@ class TrayApp:
                 pystray.MenuItem(s['add_context'],
                                  self._add_context,
                                  visible=lambda _: bool(self._recorder.is_recording)),
+                pystray.MenuItem(s['cancel_recording'],
+                                 self._cancel_recording,
+                                 visible=lambda _: bool(self._recorder.is_recording)),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem(s['view_minutes'], self._open_actions_ui),
+                pystray.MenuItem(s['view_minutes'], self._open_actions_ui, default=True),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(s['quit'], self._quit),
             )
         )
         self._icon.run()
+
+    def _write_status(self):
+        import json as _json
+        import re as _re
+        from config import PROJECT_DIR
+        jobs = []
+        if self._recording_start:
+            elapsed = int(time.time() - self._recording_start)
+            m, s = divmod(elapsed, 60)
+            jobs.append({'stage': 'recording', 'label': f'Recording {m:02d}:{s:02d}', 'elapsed': elapsed, 'pct': None})
+        if self._processing_msg:
+            pct_m = _re.search(r'(\d+)%', self._processing_msg)
+            jobs.append({'stage': 'processing', 'label': self._processing_msg, 'pct': int(pct_m.group(1)) if pct_m else None})
+        try:
+            (PROJECT_DIR / '.pipeline_status.json').write_text(_json.dumps({'jobs': jobs}), encoding='utf-8')
+        except Exception:
+            pass
 
     def set_recording(self, active: bool, path: Path = None):
         if active:
@@ -99,6 +126,7 @@ class TrayApp:
                 self._set_icon(_ICON_PROCESSING, f'TeamsRecorder - {self._processing_msg}')
             else:
                 self._set_icon(_ICON_IDLE, 'TeamsRecorder')
+        self._write_status()
         # Forzar a pystray a reevaluar lambdas del menú (título "Parar/Grabar",
         # visibilidad de "Añadir contexto") de forma inmediata.
         try:
@@ -109,6 +137,7 @@ class TrayApp:
 
     def set_processing(self, msg: str = ''):
         self._processing_msg = msg
+        self._write_status()
         if not self._recording_start:
             # No hay grabación activa: actualizar ícono directamente
             if msg:
@@ -132,12 +161,48 @@ class TrayApp:
                 rec_str = f'Recording {m:02d}:{s:02d}'
                 proc = self._processing_msg
                 tooltip = f'TeamsRecorder - {rec_str}' + (f' | {proc}' if proc else '')
-                # Solo actualizar el título (el ícono ya es el rojo correcto)
                 try:
                     if self._icon:
                         self._icon.title = tooltip
                 except Exception:
                     pass
+            self._write_status()
+            self._check_pending_notification()
+
+    def _notification_poller(self):
+        while True:
+            time.sleep(5)
+            self._check_pending_notification()
+
+    def _check_pending_notification(self):
+        notification_file = PROJECT_DIR / '.pending_notification.txt'
+        if not notification_file.exists():
+            return
+        try:
+            commits_text = notification_file.read_text(encoding='utf-8').strip()
+            notification_file.unlink()
+        except Exception:
+            return
+        if not commits_text:
+            return
+        threading.Thread(
+            target=self._send_push_notification, args=(commits_text,),
+            daemon=True, name='PushNotification',
+        ).start()
+
+    def _send_push_notification(self, commits_text: str):
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'send_update_email',
+                PROJECT_DIR / 'hooks' / 'send_update_email.py',
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            ok = mod.send_update_email(commits_text)
+            log.info(f"Push notification email {'enviado' if ok else 'fallido'}")
+        except Exception as e:
+            log.error(f"Push notification error: {e}")
 
     def _on_recording_done(self, wav_path: Path):
         self._pipeline_queue.put(wav_path)
@@ -164,6 +229,7 @@ class TrayApp:
         from html_exporter import export_to_html
         from actions_enricher import enrich_and_save
 
+        s = _STR.get(get_ui_language(), _STR['en'])
         transcript_path = get_transcript_path(wav_path)
         partial_path = wav_path.parent / f"{wav_path.stem}.partial"
 
@@ -196,6 +262,7 @@ class TrayApp:
 
             if not result:
                 log.error(f"Transcripción fallida para {wav_path.name}")
+                self._notify('TeamsRecorder ⚠', s['transcription_failed'])
                 self.set_processing('')
                 return
 
@@ -204,6 +271,7 @@ class TrayApp:
 
             if not transcript_text:
                 log.error(f"Transcripción fallida para {wav_path.name}")
+                self._notify('TeamsRecorder ⚠', s['transcription_failed'])
                 self.set_processing('')
                 return
 
@@ -227,6 +295,7 @@ class TrayApp:
         raw = generate_minutes(transcript_text, wav_path, extra_context=extra_context, language=detected_language)
         if not raw:
             log.error("Generación de minutas fallida")
+            self._notify('TeamsRecorder ⚠', s['minutes_failed'])
             self.set_processing('')
             return
 
@@ -343,6 +412,12 @@ class TrayApp:
             self._recorder.on_recording_stopped = self._on_recording_done
             self._recorder.start(path)
             self.set_recording(True, path)
+
+    def _cancel_recording(self):
+        if not self._recorder.is_recording:
+            return
+        self._recorder.cancel()
+        self.set_recording(False)
 
     def _add_context(self):
         """Muestra un diálogo para añadir contexto/objetivo a la grabación en curso."""

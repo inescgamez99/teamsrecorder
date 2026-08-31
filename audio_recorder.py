@@ -42,6 +42,10 @@ class AudioRecorder:
     def start(self, output_path: Path):
         if self._recording:
             return
+        # Si hay un guardado en curso del ciclo anterior, esperar a que termine
+        # antes de limpiar los buffers, para no perder datos.
+        if not self._save_event.is_set():
+            self._save_event.wait(timeout=30)
         with self._mic_lock:
             self._mic_chunks.clear()
         with self._loop_lock:
@@ -110,6 +114,36 @@ class AudioRecorder:
         t.start()
         return self._output_path
 
+    def cancel(self) -> None:
+        """Para la grabación y descarta el audio sin guardar ni procesar."""
+        if not self._recording:
+            return
+        self._recording = False
+        if self._stream:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+        if self._stereo_stream:
+            try:
+                self._stereo_stream.stop()
+                self._stereo_stream.close()
+            except Exception:
+                pass
+            self._stereo_stream = None
+        if self._loopback_proc:
+            try:
+                self._loopback_proc.terminate()
+                self._loopback_proc.wait(timeout=3)
+            except Exception:
+                pass
+            self._loopback_proc = None
+        with self._mic_lock:
+            self._mic_chunks.clear()
+        with self._loop_lock:
+            self._loop_chunks.clear()
+        self._save_event.set()
+        log.info("Recording cancelled — audio discarded")
+
     def wait_for_save(self, timeout: int = 60) -> bool:
         return self._save_event.wait(timeout=timeout)
 
@@ -177,7 +211,7 @@ class AudioRecorder:
                     def cb(indata, frames, time_info, status):
                         with self._loop_lock:
                             self._loop_chunks.append(indata.copy().flatten())
-                        self._stereo_stream = sd.InputStream(
+                    self._stereo_stream = sd.InputStream(
                         device=i, samplerate=SAMPLE_RATE, channels=1,
                         dtype='float32', blocksize=int(SAMPLE_RATE * 0.1), callback=cb,
                     )

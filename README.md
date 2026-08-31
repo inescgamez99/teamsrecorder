@@ -35,15 +35,16 @@ cd TeamsRecorder
 pip install -r requirements.txt
 ```
 
-### 3. Configurar las API keys
+### 3. Iniciar sesión en Claude
 
-Crea un archivo `.env` en la raíz del proyecto:
+La app usa Claude Code CLI para generar las minutas. Si no lo tienes instalado:
 
-```env
-ANTHROPIC_API_KEY=sk-ant-...
+```powershell
+npm install -g @anthropic-ai/claude-code
+claude login
 ```
 
-> La clave de Anthropic la puedes pedir a quien te compartió el repo.
+`claude login` abrirá el navegador para autenticarse con tu cuenta de Anthropic (la misma que usas en claude.ai). No necesitas ninguna API key en el `.env`.
 
 ### 4. Instalar el arranque automático con Windows
 

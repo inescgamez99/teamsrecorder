@@ -1,0 +1,26 @@
+#!/bin/sh
+# TeamsRecorder — pre-push hook (solo para el owner del repo)
+# Escribe los commits en .pending_notification.txt para que el daemon
+# los procese con Claude y mande el email al equipo.
+REPO=$(git rev-parse --show-toplevel)
+
+ALL_COMMITS=""
+
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        RANGE="$local_sha^..$local_sha"
+    else
+        RANGE="$remote_sha..$local_sha"
+    fi
+    COMMITS=$(git log --format="- %s" $RANGE 2>/dev/null)
+    if [ -n "$COMMITS" ]; then
+        ALL_COMMITS="$ALL_COMMITS$COMMITS
+"
+    fi
+done
+
+if [ -n "$ALL_COMMITS" ]; then
+    printf '%s' "$ALL_COMMITS" > "$REPO/.pending_notification.txt"
+fi
+
+exit 0

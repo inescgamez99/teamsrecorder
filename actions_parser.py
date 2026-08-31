@@ -34,7 +34,7 @@ def parse_actions(minutes_text: str, projects_dir: Path | None = None) -> list[A
     # Pasada 1: bloques instruction-for-claude
     for m in re.finditer(r'~~~instruction-for-claude\n(.*?)~~~', minutes_text, re.DOTALL):
         body = m.group(1).strip()
-        title = body.splitlines()[0][:100]
+        title = body.splitlines()[0][:100] if body else ''
         actions.append(Action(
             index=idx, type='instruction',
             prompt=body, title=title,
