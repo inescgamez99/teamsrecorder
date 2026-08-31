@@ -54,7 +54,7 @@ def get_meeting_project(minutes_path: Path) -> dict | None:
 def export_to_project_folder(minutes_path: Path, transcript_txt: str | None = None) -> bool:
     """
     Exporta transcript, HTML de notas y HTML de email a la carpeta del proyecto.
-    Respeta las preferencias export_save_* de settings.json.
+    Respeta las preferencias export_save_* definidas POR PROYECTO en projects.json.
     Devuelve True si se exportó algo, False si el proyecto no tiene carpeta configurada.
     """
     project = get_meeting_project(minutes_path)
@@ -70,15 +70,11 @@ def export_to_project_folder(minutes_path: Path, transcript_txt: str | None = No
         log.warning(f"project_exporter: carpeta no existe: {proj_dir}")
         return False
 
-    # Leer preferencias de exportación desde settings.json
-    from config import PROJECT_DIR as _PROJ_DIR
-    try:
-        _s = json.loads((_PROJ_DIR / 'settings.json').read_text(encoding='utf-8'))
-    except Exception:
-        _s = {}
-    save_transcript = _s.get('export_save_transcript', True)
-    save_html       = _s.get('export_save_html', True)
-    save_email      = _s.get('export_save_email', True)
+    # Preferencias de exportación POR PROYECTO (guardadas en projects.json).
+    # Por defecto todo activado si el proyecto no las tiene definidas.
+    save_transcript = project.get('export_save_transcript', True)
+    save_html       = project.get('export_save_html', True)
+    save_email      = project.get('export_save_email', True)
 
     slug = minutes_path.stem
 

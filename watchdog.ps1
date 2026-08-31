@@ -12,6 +12,17 @@ else {
     if ($found2) { $python = $found2.Source } else { $python = $null }
 }
 
+# Fallback: instalaciones típicas de Python por usuario (si no está en PATH)
+if (-not $python -or $python -like "*WindowsApps*") {
+    foreach ($cand in @(
+        "$env:LOCALAPPDATA\Programs\Python\Python313\pythonw.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python312\pythonw.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe"
+    )) {
+        if (Test-Path $cand) { $python = $cand; break }
+    }
+}
+
 function Log($msg) {
     $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     Add-Content -Path $logf -Value "$ts WATCHDOG: $msg" -Encoding UTF8

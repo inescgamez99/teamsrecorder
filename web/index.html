@@ -17,7 +17,13 @@
   <button class="nav-btn" id="btn-actions" onclick="showView('actions')" title="Panel Acciones">
     <span data-i18n="nav_action_panel">Panel Acciones</span>
   </button>
+  <button class="nav-btn" id="btn-projects" onclick="showView('projects')" title="Proyectos">
+    <span data-i18n="nav_projects">Proyectos</span>
+  </button>
   <div class="nav-spacer"></div>
+  <button class="nav-btn" id="btn-trash" onclick="showView('trash')" title="Recently Deleted">
+    <span data-i18n="nav_trash">Recently Deleted</span>
+  </button>
   <button class="nav-btn" id="btn-settings" onclick="showView('settings')" title="Ajustes">
     <span data-i18n="settings_nav">Ajustes</span>
   </button>
@@ -110,6 +116,25 @@
   </div>
 </div>
 
+<!-- Menú contextual: reuniones -->
+<div id="meeting-ctx-menu" class="ctx-menu hidden">
+  <button class="ctx-menu-item ctx-menu-danger" id="ctx-delete-btn">🗑 <span data-i18n="ctx_delete_meeting">Eliminar</span></button>
+</div>
+
+<!-- Modal: confirmar eliminación -->
+<div class="modal-overlay hidden" id="confirm-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="confirm-modal-title" data-i18n="confirm_delete_title">Eliminar proyecto</div>
+    <div class="modal-field">
+      <div id="confirm-modal-msg" style="font-size:13px;color:var(--subtext);line-height:1.5"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeConfirmModal()" data-i18n="regen_cancel">Cancelar</button>
+      <button class="btn btn-delete btn-sm" id="confirm-modal-ok" data-i18n="btn_delete">Eliminar</button>
+    </div>
+  </div>
+</div>
+
 <div class="view hidden" id="view-settings">
   <div class="settings-view">
     <div class="settings-view-header">
@@ -160,8 +185,18 @@
 
       </div>
 
+    </div>
+  </div>
+</div>
+
+<div class="view hidden" id="view-projects">
+  <div class="settings-view">
+    <div class="settings-view-header">
+      <h2 data-i18n="nav_projects">Proyectos</h2>
+    </div>
+    <div class="settings-view-body">
+
       <!-- ── Project Settings ── -->
-      <div class="settings-group-header" data-i18n="project_settings_title">Configuración de proyectos</div>
       <div class="settings-group settings-group--full">
 
         <div class="settings-card">
@@ -172,6 +207,10 @@
             <button class="btn btn-ghost btn-sm" onclick="detectProjectsForAll()" data-i18n="btn_detect_projects" title="Analiza todas las notas sin proyecto asignado y las clasifica con Claude">Re-detectar proyectos</button>
           </div>
           <div id="add-project-form" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+            <div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:14px">
+              <button class="btn btn-primary btn-sm" onclick="saveNewProject()" data-i18n="save_btn">Guardar</button>
+              <button class="btn btn-ghost btn-sm" onclick="hideAddProjectForm()">✕</button>
+            </div>
             <div class="add-proj-grid">
               <div>
                 <div class="proj-field-label" data-i18n="proj_name_ph">Nombre del proyecto</div>
@@ -195,36 +234,23 @@
                 </div>
               </div>
             </div>
-            <div style="display:flex;gap:6px;margin-top:12px">
-              <button class="btn btn-primary btn-sm" style="flex:1" onclick="saveNewProject()" data-i18n="save_btn">Guardar</button>
-              <button class="btn btn-ghost btn-sm" onclick="hideAddProjectForm()">✕</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Exportación a proyecto -->
-        <div class="settings-card" style="margin-top:12px">
-          <div class="settings-card-title" data-i18n="export_settings_title">Guardar en carpeta de proyecto</div>
-          <div class="settings-card-desc" data-i18n="export_settings_desc">Elige qué archivos se guardan cuando exportas una reunión a la carpeta del proyecto</div>
-          <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
-            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;color:var(--fg)">
-              <input type="checkbox" id="export-html-check" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent,#667eea)">
-              <span data-i18n="export_html">Notas en HTML</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;color:var(--fg)">
-              <input type="checkbox" id="export-email-check" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent,#667eea)">
-              <span data-i18n="export_email">Notas en formato email</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;color:var(--fg)">
-              <input type="checkbox" id="export-transcript-check" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent,#667eea)">
-              <span data-i18n="export_transcript">Transcripción</span>
-            </label>
-            <button class="btn btn-primary btn-sm" style="margin-top:4px;align-self:flex-start" id="btn-save-export" data-i18n="save_btn">Guardar</button>
           </div>
         </div>
 
       </div>
 
+    </div>
+  </div>
+</div>
+
+<div class="view hidden" id="view-trash">
+  <div class="settings-view">
+    <div class="settings-view-header">
+      <h2 data-i18n="nav_trash">Recently Deleted</h2>
+    </div>
+    <div class="settings-view-body">
+      <div class="settings-card-desc" data-i18n="trash_desc" style="margin-bottom:16px">Las reuniones eliminadas se guardan aquí. Puedes recuperarlas o borrarlas definitivamente.</div>
+      <div id="trash-list"><div class="loading" data-i18n="loading">Cargando...</div></div>
     </div>
   </div>
 </div>

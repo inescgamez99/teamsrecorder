@@ -34,7 +34,13 @@ let currentLang = localStorage.getItem('lang') || 'es';
 
 const T = {
   es: {
-    nav_notes: 'Notas', nav_action_panel: 'Panel Acciones', settings_nav: 'Ajustes',
+    nav_notes: 'Notas', nav_action_panel: 'Panel Acciones', nav_projects: 'Proyectos', nav_trash: 'Eliminados recientemente', settings_nav: 'Ajustes',
+    trash_desc: 'Las reuniones eliminadas se guardan aquí. Puedes recuperarlas o borrarlas definitivamente.',
+    trash_empty: 'La papelera está vacía.',
+    trash_recover: 'Recuperar', trash_delete_forever: 'Borrar definitivamente',
+    trash_recovered: 'Reunión recuperada', trash_purged: 'Eliminada definitivamente',
+    trash_deleted_at: 'eliminada', trash_files: 'archivos',
+    trash_purge_confirm: title => `¿Borrar definitivamente "${title}"? No se podrá recuperar.`,
     lang_label: 'Idioma de la app', theme_label: 'Tema',
     n_pending: n => `${n} pendiente${n > 1 ? 's' : ''}`,
     n_done:    n => `${n} hecha${n > 1 ? 's' : ''}`,
@@ -48,6 +54,8 @@ const T = {
     loading: 'Cargando...', loading_meetings: 'Cargando reuniones...',
     loading_actions: 'Cargando acciones...', no_meetings: 'No hay reuniones todavía',
     tab_notes: 'Notas', tab_actions: 'Gestionar acciones', section_actions: 'Acciones',
+    add_action: 'Añadir acción', toast_action_added: 'Acción añadida',
+    action_title_ph: 'Descripción de la acción...', action_assignee_ph: 'Responsable (opcional)', action_deadline_ph: 'Fecha límite (opcional)',
     n_total: n => `${n} en total`,
     no_project_label: 'Sin proyecto',
     no_actions: 'No hay acciones en esta reunión',
@@ -90,6 +98,14 @@ const T = {
     btn_move_panel: 'Mover al panel', btn_in_panel: 'En panel',
     btn_go_notes: 'Ir a notas', btn_mark_complete: 'Marcar hecha',
     btn_delete: 'Eliminar', toast_deleted: 'Acción eliminada',
+    confirm_delete_title: 'Eliminar proyecto',
+    confirm_delete_project: name => name
+      ? `¿Seguro que quieres eliminar el proyecto "${name}"? Esta acción no se puede deshacer.`
+      : '¿Seguro que quieres eliminar este proyecto? Esta acción no se puede deshacer.',
+    ctx_delete_meeting: 'Eliminar',
+    confirm_delete_meeting_title: 'Eliminar reunión',
+    confirm_delete_meeting: title => `¿Enviar la reunión "${title}" a la papelera? Podrás recuperarla desde la Papelera.`,
+    toast_meeting_deleted: 'Reunión eliminada',
     no_match_actions: 'No hay acciones en el panel. Mueve acciones desde "Gestionar acciones".',
     toast_claude: 'Abriendo Claude...', toast_terminal: 'Abriendo terminal...',
     toast_outlook: 'Abriendo Outlook...', toast_done: 'Acción marcada como hecha',
@@ -132,7 +148,9 @@ const T = {
     toast_detecting: 'Detectando proyectos en segundo plano…',
     toast_project_set: 'Proyecto actualizado',
     export_settings_title: 'Guardar en carpeta de proyecto',
-    export_settings_desc: 'Elige qué archivos se guardan cuando exportas una reunión a la carpeta del proyecto',
+    export_settings_desc: 'Todo se guarda siempre dentro de la app, como siempre. Además, si al crear un proyecto le asignas una carpeta, se guardarán copias de estos archivos también ahí:',
+    export_settings_desc_project: 'Todo se guarda siempre en la app. Marca qué copias quieres que se guarden también en la carpeta de ESTE proyecto (requiere carpeta configurada):',
+    export_needs_folder: 'Selecciona una carpeta de proyecto (con "Editar") para poder guardar copias.',
     export_html: 'Notas en HTML',
     export_email: 'Notas en formato email',
     export_transcript: 'Transcripción',
@@ -146,6 +164,9 @@ const T = {
     task_col_assignee: 'Responsable', task_col_deadline: 'Fecha límite',
     task_col_priority: 'Prioridad',
     status_not_started: 'Sin empezar', status_in_progress: 'En curso', status_done: 'Completado',
+    status_blocked: 'Bloqueada', status_paused: 'En pausa', status_pending_feedback: 'Pend. feedback',
+    task_col_description: 'Descripción', desc_placeholder: 'Añade una descripción...',
+    proj_color_label: 'Color del proyecto',
     priority_none: '— Prioridad', priority_high: 'Alta', priority_medium: 'Media', priority_low: 'Baja',
     task_add_task: '+ Nueva tarea', task_add_subitem: '+ Nuevo subitem',
     task_new_ph: 'Nombre de la tarea…', task_empty: 'Sin tareas. Usa "+ Nueva tarea" para añadir.',
@@ -154,6 +175,7 @@ const T = {
     modal_parent_label: 'Como sub-tarea de (opcional)',
     modal_parent_none: 'Tarea nueva (nivel raíz)', modal_confirm: 'Añadir al panel',
     task_from_meeting: 'de reunión',
+    drawer_meeting_label: 'Reunión asociada',
     drawer_title: 'Detalle de tarea',
     pipeline_title: 'En curso',
     settings_saved: 'Ajustes guardados',
@@ -166,7 +188,13 @@ const T = {
     add_action_cancel: 'Cancelar',
   },
   en: {
-    nav_notes: 'Notes', nav_action_panel: 'Action Panel', settings_nav: 'Settings',
+    nav_notes: 'Notes', nav_action_panel: 'Action Panel', nav_projects: 'Projects', nav_trash: 'Recently Deleted', settings_nav: 'Settings',
+    trash_desc: 'Deleted meetings are kept here. You can recover them or delete them permanently.',
+    trash_empty: 'Trash is empty.',
+    trash_recover: 'Recover', trash_delete_forever: 'Delete permanently',
+    trash_recovered: 'Meeting recovered', trash_purged: 'Permanently deleted',
+    trash_deleted_at: 'deleted', trash_files: 'files',
+    trash_purge_confirm: title => `Permanently delete "${title}"? This cannot be undone.`,
     lang_label: 'App language', theme_label: 'Theme',
     n_pending: n => `${n} pending`,
     n_done:    n => `${n} done`,
@@ -180,6 +208,8 @@ const T = {
     loading: 'Loading...', loading_meetings: 'Loading meetings...',
     loading_actions: 'Loading actions...', no_meetings: 'No meetings yet',
     tab_notes: 'Notes', tab_actions: 'Manage actions', section_actions: 'Actions',
+    add_action: 'Add action', toast_action_added: 'Action added',
+    action_title_ph: 'Action description...', action_assignee_ph: 'Owner (optional)', action_deadline_ph: 'Deadline (optional)',
     n_total: n => `${n} total`,
     no_project_label: 'No project',
     no_actions: 'No actions in this meeting',
@@ -222,6 +252,14 @@ const T = {
     btn_move_panel: 'Move to panel', btn_in_panel: 'In panel',
     btn_go_notes: 'Go to notes', btn_mark_complete: 'Mark as complete',
     btn_delete: 'Delete', toast_deleted: 'Action deleted',
+    confirm_delete_title: 'Delete project',
+    confirm_delete_project: name => name
+      ? `Are you sure you want to delete the project "${name}"? This action cannot be undone.`
+      : 'Are you sure you want to delete this project? This action cannot be undone.',
+    ctx_delete_meeting: 'Delete',
+    confirm_delete_meeting_title: 'Delete meeting',
+    confirm_delete_meeting: title => `Move the meeting "${title}" to Trash? You can recover it from the Trash.`,
+    toast_meeting_deleted: 'Meeting deleted',
     no_match_actions: 'No actions in the panel. Move actions from "Manage actions".',
     toast_claude: 'Opening Claude...', toast_terminal: 'Opening terminal...',
     toast_outlook: 'Opening Outlook...', toast_done: 'Action marked as done',
@@ -264,7 +302,9 @@ const T = {
     toast_detecting: 'Detecting projects in background…',
     toast_project_set: 'Project updated',
     export_settings_title: 'Save to project folder',
-    export_settings_desc: 'Choose which files are saved when you export a meeting to the project folder',
+    export_settings_desc: 'Everything is always saved inside the app, as usual. In addition, if you assign a folder when creating a project, copies of these files will also be saved there:',
+    export_settings_desc_project: 'Everything is always saved in the app. Tick which copies you also want saved to THIS project\'s folder (requires a folder to be set):',
+    export_needs_folder: 'Select a project folder (via "Edit") to enable saving copies.',
     export_html: 'HTML notes',
     export_email: 'Email-format notes',
     export_transcript: 'Transcript',
@@ -278,6 +318,9 @@ const T = {
     task_col_assignee: 'Assignee', task_col_deadline: 'Deadline',
     task_col_priority: 'Priority',
     status_not_started: 'Not started', status_in_progress: 'In progress', status_done: 'Done',
+    status_blocked: 'Blocked', status_paused: 'Paused', status_pending_feedback: 'Pending feedback',
+    task_col_description: 'Description', desc_placeholder: 'Add a description...',
+    proj_color_label: 'Project color',
     priority_none: '— Priority', priority_high: 'High', priority_medium: 'Medium', priority_low: 'Low',
     task_add_task: '+ New task', task_add_subitem: '+ New sub-item',
     task_new_ph: 'Task name…', task_empty: 'No tasks. Use "+ New task" to add one.',
@@ -286,6 +329,7 @@ const T = {
     modal_parent_label: 'As sub-item of (optional)',
     modal_parent_none: 'New task (top level)', modal_confirm: 'Add to panel',
     task_from_meeting: 'from meeting',
+    drawer_meeting_label: 'Related meeting',
     drawer_title: 'Task detail',
     pipeline_title: 'In progress',
     settings_saved: 'Settings saved',
@@ -313,8 +357,10 @@ function applyLang(lang) {
   });
   const si = document.getElementById('search-input');
   if (si) si.placeholder = t('search_ph');
+  const trashBtn = document.getElementById('btn-trash');
+  if (trashBtn) trashBtn.title = t('nav_trash');
   renderWhisperOptions();
-  if (!document.getElementById('view-settings').classList.contains('hidden')) {
+  if (!document.getElementById('view-projects').classList.contains('hidden')) {
     loadProjectsSettings();
   }
 }
@@ -328,6 +374,7 @@ const actionPaths   = {};   // i -> {path, index}
 window.addEventListener('pywebviewready', async () => {
   await initSettings();
   initResize();
+  _initMeetingContextMenu();
   allProjects = await pywebview.api.get_projects();
   await loadMeetings();
   await refreshPendingBadge();
@@ -350,9 +397,27 @@ window.addEventListener('pywebviewready', async () => {
 async function loadMeetings() {
   const meetings = await pywebview.api.get_meetings();
   allMeetings = meetings;
+  meetingPaths.length = 0;
   meetings.forEach((m, i) => { meetingPaths[i] = m.path; });
   renderSidebar(meetings);
   if (meetings.length > 0) openMeeting(meetings[0].path);
+}
+
+async function refreshMeetingList() {
+  const meetings = await pywebview.api.get_meetings();
+  allMeetings = meetings;
+  meetingPaths.length = 0;
+  meetings.forEach((m, i) => { meetingPaths[i] = m.path; });
+  renderSidebar(meetings);
+  // If the currently open meeting no longer exists, clear the right panel
+  if (currentPath && !meetings.some(m => _samePath(m.path, currentPath))) {
+    currentPath = null;
+    document.getElementById('main-panel').innerHTML = '';
+  }
+}
+
+function _samePath(a, b) {
+  return a && b && a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
 }
 
 // ── Vistas ────────────────────────────────────────────────────────────────────
@@ -360,12 +425,18 @@ async function loadMeetings() {
 function showView(view) {
   document.getElementById('view-meetings').classList.toggle('hidden', view !== 'meetings');
   document.getElementById('view-actions').classList.toggle('hidden', view !== 'actions');
+  document.getElementById('view-projects').classList.toggle('hidden', view !== 'projects');
+  document.getElementById('view-trash').classList.toggle('hidden', view !== 'trash');
   document.getElementById('view-settings').classList.toggle('hidden', view !== 'settings');
   document.getElementById('btn-meetings').classList.toggle('active', view === 'meetings');
   document.getElementById('btn-actions').classList.toggle('active', view === 'actions');
+  document.getElementById('btn-projects').classList.toggle('active', view === 'projects');
+  document.getElementById('btn-trash').classList.toggle('active', view === 'trash');
   document.getElementById('btn-settings').classList.toggle('active', view === 'settings');
   if (view === 'actions') loadTaskBoard();
-  if (view === 'settings') { loadProjectsSettings(); loadRecordingSettings(); loadExportSettings(); }
+  if (view === 'projects') loadProjectsSettings();
+  if (view === 'trash') loadTrash();
+  if (view === 'settings') loadRecordingSettings();
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -422,9 +493,19 @@ function renderSidebarByDays(meetings) {
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
     });
+    el.addEventListener('contextmenu', e => {
+      const idx = parseInt(el.dataset.midx);
+      const path = meetingPaths[idx];
+      const title = allMeetings[idx]?.title || '';
+      if (path) _showMeetingContextMenu(e, path, title, el);
+    });
   });
   list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); deleteMeeting(btn.dataset.delPath); });
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const p = btn.dataset.delPath;
+      _confirmDeleteMeeting(p, (allMeetings.find(m => m.path === p) || {}).title || '', btn.closest('.meeting-item'));
+    });
   });
 }
 
@@ -436,7 +517,8 @@ function renderSidebarByProject(meetings) {
   }
 
   const projNames = {};
-  allProjects.forEach(p => { projNames[p.id] = p.name; });
+  const projMap = {};
+  allProjects.forEach(p => { projNames[p.id] = p.name; projMap[p.id] = p; });
 
   const groups = {};
   meetings.forEach((m, idx) => {
@@ -454,11 +536,13 @@ function renderSidebarByProject(meetings) {
     return (projNames[a] || a).localeCompare(projNames[b] || b);
   });
 
-  list.innerHTML = entries.map(([pid, grp]) => `
+  list.innerHTML = entries.map(([pid, grp]) => {
+    const color = _projectColor(projMap[pid] || { id: pid });
+    return `
     <div class="project-sidebar-group">
-      <div class="project-sidebar-header" onclick="toggleProjectSidebarGroup('${escHtml(pid)}')">
-        <span class="project-sidebar-name">${escHtml(grp.name)}</span>
-        <span class="project-sidebar-chevron" id="pchev-${escHtml(pid)}">▾</span>
+      <div class="project-sidebar-header" style="border-left:2px solid ${color}" onclick="toggleProjectSidebarGroup('${escHtml(pid)}')">
+        <span class="project-sidebar-name" style="color:${color}">${escHtml(grp.name)}</span>
+        <span class="project-sidebar-chevron" id="pchev-${escHtml(pid)}" style="color:${color}">▾</span>
       </div>
       <div class="project-sidebar-items" id="pgroup-${escHtml(pid)}">
         ${grp.items.map(m => `
@@ -472,8 +556,8 @@ function renderSidebarByProject(meetings) {
           </div>
         `).join('')}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   list.querySelectorAll('.meeting-item').forEach(el => {
     el.addEventListener('click', e => {
@@ -481,26 +565,70 @@ function renderSidebarByProject(meetings) {
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
     });
+    el.addEventListener('contextmenu', e => {
+      const idx = parseInt(el.dataset.midx);
+      const path = meetingPaths[idx];
+      const title = allMeetings[idx]?.title || '';
+      if (path) _showMeetingContextMenu(e, path, title, el);
+    });
   });
   list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); deleteMeeting(btn.dataset.delPath); });
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const p = btn.dataset.delPath;
+      _confirmDeleteMeeting(p, (allMeetings.find(m => m.path === p) || {}).title || '', btn.closest('.meeting-item'));
+    });
   });
 }
 
-async function deleteMeeting(path) {
-  if (!path) return;
-  await pywebview.api.delete_meeting(path);
-  allMeetings = allMeetings.filter(m => m.path !== path);
-  renderSidebar(allMeetings);
-  if (currentPath === path) {
-    currentPath = null;
-    const panel = document.getElementById('detail-panel');
-    if (panel) panel.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-title">${t('empty_title')}</div>
-        <div class="empty-sub">${t('empty_sub')}</div>
-      </div>`;
+// ── Papelera (reuniones eliminadas) ──────────────────────────────────────────
+
+async function loadTrash() {
+  const list = document.getElementById('trash-list');
+  if (!list) return;
+  list.innerHTML = `<div class="loading">${t('loading')}</div>`;
+  let items = [];
+  try { items = await pywebview.api.list_trash(); } catch (_) {}
+  if (!items || !items.length) {
+    list.innerHTML = `<div style="color:var(--muted);font-size:13px">${t('trash_empty')}</div>`;
+    return;
   }
+  list.innerHTML = items.map(it => {
+    const id = escHtml(it.id);
+    const title = escHtml(it.title || it.stem || '');
+    const when = (it.deleted_at || '').slice(0, 10);
+    return `
+    <div class="trash-item" data-trash-id="${id}">
+      <div class="trash-item-info">
+        <div class="trash-item-title">${title}</div>
+        <div class="trash-item-meta">${escHtml(it.date || '')} · ${t('trash_deleted_at')} ${escHtml(when)} · ${it.file_count || 0} ${t('trash_files')}</div>
+      </div>
+      <div class="trash-item-actions">
+        <button class="btn btn-primary btn-sm" onclick="recoverMeeting('${id}')">${t('trash_recover')}</button>
+        <button class="btn btn-delete btn-sm" onclick="purgeTrashMeeting('${id}', '${title}')">${t('trash_delete_forever')}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function recoverMeeting(id) {
+  const ok = await pywebview.api.recover_meeting(id);
+  if (ok) {
+    showToast(t('trash_recovered'));
+    await loadTrash();
+    try { if (typeof refreshMeetingList === 'function') await refreshMeetingList(); } catch (_) {}
+  }
+}
+
+function purgeTrashMeeting(id, title) {
+  openConfirmModal(
+    t('trash_purge_confirm', title || ''),
+    async () => {
+      const ok = await pywebview.api.purge_trash_meeting(id);
+      if (ok) { showToast(t('trash_purged')); await loadTrash(); }
+    },
+    { title: t('trash_delete_forever'), okLabel: t('btn_delete') }
+  );
 }
 
 function toggleProjectSidebarGroup(pid) {
@@ -509,6 +637,73 @@ function toggleProjectSidebarGroup(pid) {
   if (!items) return;
   items.classList.toggle('collapsed');
   if (chev) chev.textContent = items.classList.contains('collapsed') ? '▸' : '▾';
+}
+
+// ── Meeting context menu (right-click: rename / delete) ──────────────────────
+
+let _ctxPath  = null;
+let _ctxTitle = null;
+let _ctxEl    = null;
+
+function _initMeetingContextMenu() {
+  const menu   = document.getElementById('meeting-ctx-menu');
+  const delBtn = document.getElementById('ctx-delete-btn');
+  if (!menu) return;
+
+  delBtn.onclick = () => { menu.classList.add('hidden'); _confirmDeleteMeeting(_ctxPath, _ctxTitle, _ctxEl); };
+
+  document.addEventListener('click', () => menu.classList.add('hidden'));
+  document.addEventListener('contextmenu', e => {
+    if (!e.target.closest('.meeting-item')) menu.classList.add('hidden');
+  });
+}
+
+function _showMeetingContextMenu(e, path, title, el) {
+  e.preventDefault();
+  e.stopPropagation();
+  _ctxPath  = path;
+  _ctxTitle = title;
+  _ctxEl    = el;
+  const menu = document.getElementById('meeting-ctx-menu');
+  menu.classList.remove('hidden');
+  const x = Math.min(e.clientX, window.innerWidth  - 175);
+  const y = Math.min(e.clientY, window.innerHeight - 75);
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+}
+
+
+function _confirmDeleteMeeting(pathToDelete, titleToDelete, elToRemove) {
+  if (!pathToDelete) return;
+
+  openConfirmModal(
+    t('confirm_delete_meeting', titleToDelete || ''),
+    async () => {
+      const ok = await pywebview.api.delete_meeting(pathToDelete);
+      if (ok) {
+        showToast(t('toast_meeting_deleted'));
+
+        // Clear right panel immediately if this meeting is open
+        if (_samePath(currentPath, pathToDelete)) {
+          currentPath = null;
+          document.getElementById('main-panel').innerHTML = '';
+        }
+
+        // Remove sidebar item immediately for instant feedback
+        if (elToRemove && elToRemove.isConnected) {
+          const dayGroup  = elToRemove.closest('.day-group');
+          const projGroup = elToRemove.closest('.project-sidebar-group');
+          elToRemove.remove();
+          if (dayGroup  && !dayGroup.querySelector('.meeting-item'))  dayGroup.remove();
+          if (projGroup && !projGroup.querySelector('.meeting-item')) projGroup.remove();
+        }
+
+        // Full refresh — also clears right panel if currentPath is gone
+        await refreshMeetingList();
+      }
+    },
+    { title: t('confirm_delete_meeting_title'), okLabel: t('btn_delete') }
+  );
 }
 
 function dayLabel(dateStr) {
@@ -594,7 +789,9 @@ async function openMeeting(path) {
         <div class="actions-section-header">
           <div class="section-label">${t('section_actions')}</div>
           <div class="actions-count">${t('n_total', actions ? actions.length : 0)}</div>
+          <button class="btn btn-ghost btn-sm" id="btn-add-action" style="margin-left:auto">+ ${t('add_action')}</button>
         </div>
+        <div id="add-action-form" class="add-action-form" style="display:none"></div>
         <div id="meeting-actions"></div>
       </div>
     </div>`;
@@ -625,6 +822,8 @@ async function openMeeting(path) {
     });
   });
 
+  document.getElementById('btn-add-action')?.addEventListener('click', () => toggleAddActionForm(path));
+
   const actionsDiv = document.getElementById('meeting-actions');
   if (actions && actions.length) {
     renderActionCards(actions, path, actionsDiv, meeting.date || '');
@@ -633,6 +832,58 @@ async function openMeeting(path) {
     actionsDiv.innerHTML = `<div style="color:var(--muted);font-size:13px;margin-bottom:10px">${t('no_actions')}</div>`;
   }
   _renderAddActionBtn(path, actionsDiv);
+}
+
+// ── Añadir acción manual a una reunión ────────────────────────────────────────
+
+function toggleAddActionForm(path) {
+  const form = document.getElementById('add-action-form');
+  if (!form) return;
+  if (form.style.display !== 'none') { form.style.display = 'none'; form.innerHTML = ''; return; }
+  form.style.display = 'block';
+  form.innerHTML = `
+    <input type="text" id="new-action-title" class="settings-text-input" placeholder="${t('action_title_ph')}">
+    <div class="add-action-row">
+      <input type="text" id="new-action-assignee" class="settings-text-input" placeholder="${t('action_assignee_ph')}">
+      <input type="text" id="new-action-deadline" class="settings-text-input" placeholder="${t('action_deadline_ph')}">
+    </div>
+    <div class="add-action-btns">
+      <button class="btn btn-primary btn-sm" id="new-action-save">${t('save_btn')}</button>
+      <button class="btn btn-ghost btn-sm" id="new-action-cancel">${t('regen_cancel')}</button>
+    </div>`;
+  const titleEl = document.getElementById('new-action-title');
+  titleEl.focus();
+  const close = () => { form.style.display = 'none'; form.innerHTML = ''; };
+  document.getElementById('new-action-cancel').onclick = close;
+  const save = async () => {
+    const title = titleEl.value.trim();
+    if (!title) { titleEl.focus(); return; }
+    const assignee = document.getElementById('new-action-assignee').value.trim();
+    const deadline = document.getElementById('new-action-deadline').value.trim();
+    const ok = await pywebview.api.add_meeting_action(path, title, deadline, assignee);
+    if (ok) {
+      close();
+      await refreshMeetingActions(path);
+      showToast(t('toast_action_added'));
+    }
+  };
+  document.getElementById('new-action-save').onclick = save;
+  titleEl.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+}
+
+async function refreshMeetingActions(path) {
+  const actions = await pywebview.api.get_actions(path);
+  const actionsDiv = document.getElementById('meeting-actions');
+  if (!actionsDiv) return;
+  const countEl = document.querySelector('#section-actions .actions-count');
+  if (countEl) countEl.textContent = t('n_total', actions ? actions.length : 0);
+  if (actions && actions.length) {
+    renderActionCards(actions, path, actionsDiv, '');
+    _prefillWorkingDirs(actions, path);
+  } else {
+    actionsDiv.innerHTML = `<div style="color:var(--muted);font-size:13px">${t('no_actions')}</div>`;
+  }
+  try { refreshPendingBadge(); } catch (_) {}
 }
 
 // ── Meta row compartida (Owner · Creada · Deadline · badge) ──────────────────
@@ -843,7 +1094,18 @@ async function _prefillWorkingDirs(actions, path) {
 
 // ── Task board (Panel de Acciones — Notion style) ────────────────────────────
 
-const STATUS_CYCLE   = ['not_started', 'in_progress', 'done'];
+const PROJECT_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#84cc16','#14b8a6'];
+
+function _projectColor(project) {
+  if (!project || project.id === 'none') return 'var(--accent)';
+  if (project.color) return project.color;
+  const id = project.id || '';
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i)) % PROJECT_COLORS.length;
+  return PROJECT_COLORS[hash];
+}
+
+const STATUS_CYCLE   = ['not_started', 'in_progress', 'blocked', 'paused', 'pending_feedback', 'done'];
 const PRIORITY_CYCLE = [null, 'high', 'medium', 'low'];
 
 function _statusLabel(s)   { return t('status_' + (s || 'not_started')); }
@@ -871,13 +1133,9 @@ function renderTaskBoard() {
     byProject[pid].push(task);
   });
 
-  const sections = [...projects];
-  if (byProject['none']?.length) sections.push({ id: 'none', name: t('task_no_project') });
-
-  if (!sections.length) {
-    body.innerHTML = `<div class="task-empty">${t('task_empty')}</div>`;
-    return;
-  }
+  // La sección "Sin proyecto" se muestra siempre (aunque esté vacía) y va primero,
+  // para poder añadir/ver tareas no asociadas a ningún proyecto.
+  const sections = [{ id: 'none', name: t('task_no_project') }, ...projects];
 
   body.innerHTML = sections.map(p => _renderProjectSection(p, byProject[p.id] || [])).join('');
   _bindTaskBoardEvents();
@@ -890,13 +1148,14 @@ function _renderProjectSection(project, projectTasks) {
     if (t.parent_id) { if (!subMap[t.parent_id]) subMap[t.parent_id] = []; subMap[t.parent_id].push(t); }
   });
   const done = topLevel.filter(t => t.status === 'done').length;
+  const color = _projectColor(project);
 
   return `
   <div class="task-project-section" data-project-id="${project.id}">
-    <div class="task-project-header" onclick="toggleProjectSection('${project.id}')">
-      <span class="task-project-chevron open">▶</span>
-      <span class="task-project-name">${escHtml(project.name)}</span>
-      <span class="task-project-count">${done}/${topLevel.length}</span>
+    <div class="task-project-header" style="border-left-color:${color}" onclick="toggleProjectSection('${project.id}')">
+      <span class="task-project-chevron open" style="color:${color}">▶</span>
+      <span class="task-project-name" style="color:${color}">${escHtml(project.name)}</span>
+      <span class="task-project-count" style="color:${color};background:${color}1a">${done}/${topLevel.length}</span>
     </div>
     <div class="task-project-body" id="proj-body-${project.id}">
       <div class="task-col-headers">
@@ -947,8 +1206,9 @@ function _renderTaskRow(task, subitems, isSubitem) {
         ${claudeBadge}${srcTag}
         <button class="task-row-detail" data-detail-task="${task.id}">···</button>
       </div>
-      <div><button class="task-status-btn ${_statusCls(task.status)}"
-           data-status-task="${task.id}">${_statusLabel(task.status)}</button></div>
+      <div><select class="task-status-select ${_statusCls(task.status)}" data-status-task="${task.id}">
+           ${STATUS_CYCLE.map(s => `<option value="${s}" ${task.status === s ? 'selected' : ''}>${_statusLabel(s)}</option>`).join('')}
+      </select></div>
       <div><input class="task-cell-input" type="text" value="${escHtml(task.assignee || '')}"
            placeholder="—" data-task-field="${task.id}:assignee"></div>
       <div><input class="task-cell-input" type="text" value="${escHtml(task.deadline || '')}"
@@ -983,18 +1243,18 @@ function _bindTaskBoardEvents() {
   const body = document.getElementById('task-board-body');
   if (!body) return;
 
-  body.querySelectorAll('[data-status-task]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.statusTask;
+  body.querySelectorAll('[data-status-task]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const id = sel.dataset.statusTask;
       const task = _taskData.tasks.find(t => t.id === id);
       if (!task) return;
-      const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(task.status) + 1) % STATUS_CYCLE.length];
+      const next = sel.value;
       task.status = next;
-      btn.textContent = _statusLabel(next);
-      btn.className = 'task-status-btn ' + _statusCls(next);
+      sel.className = 'task-status-select ' + _statusCls(next);
       document.querySelector(`[data-task-field="${id}:title"]`)?.classList.toggle('done', next === 'done');
       await pywebview.api.update_task(id, { status: next });
       _refreshProjectCount(task.project_id);
+      refreshPendingBadge();
     });
   });
 
@@ -1040,6 +1300,14 @@ function _bindTaskBoardEvents() {
       _taskData.tasks = _taskData.tasks.filter(t => t.id !== id && t.parent_id !== id);
       document.getElementById('taskwrap-' + id)?.remove();
       if (task?.project_id) _refreshProjectCount(task.project_id);
+      refreshPendingBadge();
+      // Refrescar acciones de la reunión abierta para que el botón vuelva de
+      // "In panel" a "Move to panel". Usamos currentPath (no task.meeting_path)
+      // porque el meeting puede haber sido renombrado y el path del task puede
+      // estar desactualizado.
+      if (task?.meeting_path && currentPath) {
+        refreshMeetingActions(currentPath);
+      }
     });
   });
 
@@ -1079,6 +1347,7 @@ function _startAddTask(addRow) {
     const task = await pywebview.api.create_task(projectId, title, parentId);
     _taskData.tasks.push(task);
     renderTaskBoard();
+    refreshPendingBadge();
   };
   input.addEventListener('blur', commit);
   input.addEventListener('keydown', e => {
@@ -1116,6 +1385,7 @@ async function openTaskDetail(taskId) {
     `<option value="${s}" ${task.status === s ? 'selected' : ''}>${_statusLabel(s)}</option>`).join('');
   const priorityOpts = PRIORITY_CYCLE.map(p =>
     `<option value="${p ?? ''}" ${(task.priority ?? '') === (p ?? '') ? 'selected' : ''}>${_priorityLabel(p)}</option>`).join('');
+  const meetingMeta = task.meeting_path ? _meetingMetaFromPath(task.meeting_path) : null;
 
   body.innerHTML = `
     <div class="drawer-field">
@@ -1142,10 +1412,20 @@ async function openTaskDetail(taskId) {
         <input class="drawer-cell-input" id="drawer-deadline" type="text" value="${escHtml(task.deadline || '')}" placeholder="—">
       </div>
     </div>
+    <div class="drawer-field">
+      <div class="drawer-field-label">${t('task_col_description')}</div>
+      <textarea class="drawer-desc-textarea" id="drawer-description" placeholder="${t('desc_placeholder')}">${escHtml(task.description || '')}</textarea>
+    </div>
     ${task.meeting_path ? `
     <div class="drawer-field">
-      <button class="drawer-meeting-link" onclick="closeTaskDetail(); showView('meetings'); openMeeting('${escHtml(task.meeting_path)}')">
-        ↗ ${t('task_from_meeting')}
+      <div class="drawer-field-label">${t('drawer_meeting_label')}</div>
+      <button class="drawer-meeting-card" onclick="_openMeetingFromDrawer()">
+        <span class="drawer-meeting-card-icon">📄</span>
+        <span class="drawer-meeting-card-info">
+          <span class="drawer-meeting-card-title">${escHtml(meetingMeta.title || t('task_from_meeting'))}</span>
+          ${meetingMeta.date ? `<span class="drawer-meeting-card-date">${escHtml(meetingMeta.date)}</span>` : ''}
+        </span>
+        <span class="drawer-meeting-card-arrow">↗</span>
       </button>
     </div>` : ''}
     ${isClaudeExec ? `
@@ -1170,8 +1450,9 @@ async function openTaskDetail(taskId) {
     const titleInput = document.querySelector(`[data-task-field="${taskId}:title"]`);
     if (field === 'title' && titleInput) { titleInput.value = val; titleInput.title = val; }
     if (field === 'status') {
-      const statusBtn = document.querySelector(`[data-status-task="${taskId}"]`);
-      if (statusBtn) { statusBtn.textContent = _statusLabel(val); statusBtn.className = 'task-status-btn ' + _statusCls(val); }
+      const statusSel = document.querySelector(`[data-status-task="${taskId}"]`);
+      if (statusSel) { statusSel.value = val; statusSel.className = 'task-status-select ' + _statusCls(val); }
+      refreshPendingBadge();
     }
   };
 
@@ -1185,6 +1466,8 @@ async function openTaskDetail(taskId) {
     saveField('assignee', () => document.getElementById('drawer-assignee').value.trim()));
   document.getElementById('drawer-deadline')?.addEventListener('blur', () =>
     saveField('deadline', () => document.getElementById('drawer-deadline').value.trim()));
+  document.getElementById('drawer-description')?.addEventListener('blur', () =>
+    saveField('description', () => document.getElementById('drawer-description').value.trim()));
 
   // Save prompt to meeting JSON on blur
   if (isClaudeExec && task.meeting_path) {
@@ -1210,6 +1493,25 @@ function closeTaskDetail() {
   document.getElementById('task-detail-drawer')?.classList.remove('open');
   document.getElementById('task-drawer-backdrop')?.classList.remove('open');
   _drawerTaskId = null;
+}
+
+// Devuelve {title, date} de la reunión asociada a partir de su ruta .md
+function _meetingMetaFromPath(path) {
+  const m = (allMeetings || []).find(mm => mm.path === path);
+  if (m) return { title: m.title, date: m.date };
+  const base = String(path).split(/[\\/]/).pop().replace(/\.md$/i, '');
+  const mm = base.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})_(.*)$/);
+  if (mm) return { title: mm[6].replace(/_/g, ' '), date: `${mm[1]}-${mm[2]}-${mm[3]}` };
+  return { title: base, date: '' };
+}
+
+// Abre la reunión asociada a la tarea del drawer (sin inyectar la ruta en el HTML)
+function _openMeetingFromDrawer() {
+  const task = _taskData.tasks.find(tk => tk.id === _drawerTaskId);
+  if (!task?.meeting_path) return;
+  closeTaskDetail();
+  showView('meetings');
+  openMeeting(task.meeting_path);
 }
 
 // ── Recording settings ────────────────────────────────────────────────────────
@@ -1242,31 +1544,6 @@ async function loadRecordingSettings() {
 async function saveWhisperModel(model) {
   await pywebview.api.save_settings({ whisper_model: model });
   showToast(t('toast_model_saved'));
-}
-
-// ── Export settings ───────────────────────────────────────────────────────────
-
-async function loadExportSettings() {
-  try {
-    const s = await pywebview.api.get_settings();
-    document.getElementById('export-html-check').checked       = s.export_save_html       !== false;
-    document.getElementById('export-email-check').checked      = s.export_save_email      !== false;
-    document.getElementById('export-transcript-check').checked = s.export_save_transcript !== false;
-  } catch (e) {
-    ['export-html-check', 'export-email-check', 'export-transcript-check']
-      .forEach(id => { document.getElementById(id).checked = true; });
-  }
-  const saveBtn = document.getElementById('btn-save-export');
-  if (saveBtn) saveBtn.addEventListener('click', saveExportSettings);
-}
-
-async function saveExportSettings() {
-  await pywebview.api.save_settings({
-    export_save_html:       document.getElementById('export-html-check').checked,
-    export_save_email:      document.getElementById('export-email-check').checked,
-    export_save_transcript: document.getElementById('export-transcript-check').checked,
-  });
-  showToast(t('settings_saved'));
 }
 
 // ── Per-project field save ────────────────────────────────────────────────────
@@ -1303,8 +1580,40 @@ async function openProjectDir(dir) {
 // ── Project settings management ───────────────────────────────────────────────
 
 let _newProjectFolder = '';
+let _editingProjectId = null;         // proyecto actualmente en modo edición (o null)
+const _expandedProjects = new Set();  // ids de proyectos con el detalle desplegado
+
+function toggleColorPicker(pid) {
+  const picker = document.getElementById(`color-picker-${pid}`);
+  if (!picker) return;
+  picker.style.display = picker.style.display === 'none' ? 'flex' : 'none';
+}
+
+function selectProjectColor(swatch, pid) {
+  const picker = document.getElementById(`color-picker-${pid}`);
+  if (picker) {
+    picker.querySelectorAll('.proj-color-swatch').forEach(s => s.classList.remove('selected'));
+    swatch.classList.add('selected');
+    picker.style.display = 'none';
+  }
+  const trigger = document.querySelector(`[data-color-trigger="${pid}"]`);
+  if (trigger) { trigger.style.background = swatch.dataset.color; trigger.dataset.color = swatch.dataset.color; }
+}
+
+function toggleProjectDetail(pid) {
+  const card = document.querySelector(`.project-settings-item[data-proj-id="${pid}"]`);
+  if (!card) return;
+  const detail = card.querySelector('.project-settings-detail');
+  const chev = card.querySelector('.project-chevron');
+  const willExpand = !_expandedProjects.has(pid);
+  if (willExpand) _expandedProjects.add(pid); else _expandedProjects.delete(pid);
+  if (detail) detail.style.display = willExpand ? '' : 'none';
+  if (chev) chev.textContent = willExpand ? '▾' : '▸';
+  card.classList.toggle('expanded', willExpand);
+}
 
 async function loadProjectsSettings(editingId = null) {
+  _editingProjectId = editingId;
   const projects = await pywebview.api.get_projects();
   const list = document.getElementById('projects-list-settings');
   if (!list) return;
@@ -1316,43 +1625,90 @@ async function loadProjectsSettings(editingId = null) {
     const pid = escHtml(p.id);
     const hasFolder = !!(p.output_dir && p.output_dir.trim());
     const isEditing = editingId === pid;
-    const headerSection = isEditing ? `
-      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+    if (isEditing) _expandedProjects.add(p.id);  // mantener abierto al editar
+    const isExpanded = isEditing || _expandedProjects.has(p.id);
+
+    const color = _projectColor(p);
+    const colorSwatches = PROJECT_COLORS.map(c =>
+      `<button class="proj-color-swatch${c === color ? ' selected' : ''}" data-color="${c}" style="background:${c}" onclick="selectProjectColor(this,'${pid}')" title="${c}"></button>`
+    ).join('');
+
+    const headerRow = isEditing ? `
+      <div style="display:flex;flex-direction:column;gap:6px">
         <input class="settings-text-input" id="edit-proj-name-${pid}" value="${escHtml(p.name)}" style="font-size:13px;font-weight:600">
         <input class="settings-text-input" id="edit-proj-desc-${pid}" value="${escHtml(p.description || '')}" placeholder="${t('proj_desc_ph')}" style="font-size:12px">
       </div>
-      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+    ` : `
+      <div class="project-settings-row" onclick="toggleProjectDetail('${pid}')">
+        <div style="min-width:0;flex:1">
+          <div class="project-settings-name">${escHtml(p.name)}</div>
+          ${p.description ? `<div class="project-settings-desc">${escHtml(p.description)}</div>` : ''}
+        </div>
+        <span class="project-chevron">${isExpanded ? '▾' : '▸'}</span>
+      </div>
+    `;
+
+    const detailActions = isEditing ? `
+      <div style="display:flex;gap:4px;justify-content:flex-end;margin-bottom:8px">
         <button class="btn btn-primary btn-sm" onclick="saveEditProject('${pid}')">${t('save_btn')}</button>
         <button class="btn btn-ghost btn-sm" onclick="loadProjectsSettings()">${t('cancel_btn')}</button>
       </div>
     ` : `
-      <div>
-        <div style="font-size:13px;font-weight:600;color:var(--text)">${escHtml(p.name)}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${escHtml(p.description || '')}</div>
-      </div>
-      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+      <div style="display:flex;gap:4px;justify-content:flex-end;margin-bottom:4px">
         <button class="btn btn-ghost btn-sm" onclick="loadProjectsSettings('${pid}')">${t('edit_btn')}</button>
         <button class="btn btn-delete btn-sm" onclick="deleteProject('${pid}')">✕</button>
-      </div>
-    `;
+      </div>`;
+
+    const fieldsDisabled = isEditing ? '' : 'disabled';
+    const canEditExport = isEditing && hasFolder;
+    const boxChecked = f => (hasFolder && p['export_save_' + f] !== false) ? 'checked' : '';
+
     return `
-    <div class="project-settings-item" data-proj-id="${pid}">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-        ${headerSection}
-      </div>
-      <div style="margin-top:12px">
-        <div class="proj-field-label">${t('proj_stake_label')}</div>
-        <div class="settings-card-desc" style="margin:3px 0 5px">${t('proj_stake_desc')}</div>
-        <input class="settings-text-input" value="${escHtml((p.stakeholders||[]).join(', '))}"
-          data-proj-field="stakeholders" oninput="scheduleProjectSave('${pid}')">
-      </div>
-      <div style="margin-top:12px">
-        <div class="proj-field-label">${t('proj_dir_label')}</div>
-        <div class="settings-card-desc" style="margin:3px 0 5px">${t('proj_dir_desc')}</div>
-        <div class="proj-folder-row">
-          <span class="proj-folder-path ${hasFolder ? '' : 'empty'}" id="proj-folder-display-${pid}">${hasFolder ? escHtml(p.output_dir) : t('proj_folder_default')}</span>
-          <button class="btn btn-ghost btn-sm" onclick="browseProjectFolder('${pid}')">${t('proj_folder_browse')}</button>
-          ${hasFolder ? `<button class="btn btn-ghost btn-sm" onclick="clearProjectFolder('${pid}')" title="${t('proj_folder_clear')}">✕</button>` : ''}
+    <div class="project-settings-item${isExpanded ? ' expanded' : ''}" data-proj-id="${pid}" style="border-left-color:${color}">
+      ${headerRow}
+      <div class="project-settings-detail"${isExpanded ? '' : ' style="display:none"'}>
+        ${detailActions}
+        ${isEditing ? `
+        <div style="margin-top:4px;margin-bottom:4px">
+          <div class="proj-field-label" style="margin-bottom:6px">${t('proj_color_label')}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button class="proj-color-swatch" data-color-trigger="${pid}" data-color="${color}" style="background:${color}" onclick="toggleColorPicker('${pid}')" title="${t('proj_color_label')}"></button>
+            <div class="proj-color-picker" id="color-picker-${pid}" style="display:none">${colorSwatches}</div>
+          </div>
+        </div>` : ''}
+        <div style="margin-top:8px">
+          <div class="proj-field-label">${t('proj_stake_label')}</div>
+          <div class="settings-card-desc" style="margin:3px 0 5px">${t('proj_stake_desc')}</div>
+          <input class="settings-text-input" value="${escHtml((p.stakeholders||[]).join(', '))}"
+            data-proj-field="stakeholders" ${fieldsDisabled}>
+        </div>
+        <div style="margin-top:12px">
+          <div class="proj-field-label">${t('proj_dir_label')}</div>
+          <div class="settings-card-desc" style="margin:3px 0 5px">${t('proj_dir_desc')}</div>
+          <div class="proj-folder-row">
+            <span class="proj-folder-path ${hasFolder ? '' : 'empty'}" id="proj-folder-display-${pid}">${hasFolder ? escHtml(p.output_dir) : t('proj_folder_default')}</span>
+            ${isEditing ? `<button class="btn btn-ghost btn-sm" onclick="browseProjectFolder('${pid}')">${t('proj_folder_browse')}</button>` : ''}
+            ${isEditing && hasFolder ? `<button class="btn btn-ghost btn-sm" onclick="clearProjectFolder('${pid}')" title="${t('proj_folder_clear')}">✕</button>` : ''}
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="proj-field-label">${t('export_settings_title')}</div>
+          <div class="settings-card-desc" style="margin:3px 0 8px">${t('export_settings_desc_project')}</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label class="proj-export-check${canEditExport ? '' : ' disabled'}">
+              <input type="checkbox" data-export-field="html" ${boxChecked('html')} ${canEditExport ? '' : 'disabled'}>
+              <span data-i18n="export_html">${t('export_html')}</span>
+            </label>
+            <label class="proj-export-check${canEditExport ? '' : ' disabled'}">
+              <input type="checkbox" data-export-field="email" ${boxChecked('email')} ${canEditExport ? '' : 'disabled'}>
+              <span data-i18n="export_email">${t('export_email')}</span>
+            </label>
+            <label class="proj-export-check${canEditExport ? '' : ' disabled'}">
+              <input type="checkbox" data-export-field="transcript" ${boxChecked('transcript')} ${canEditExport ? '' : 'disabled'}>
+              <span data-i18n="export_transcript">${t('export_transcript')}</span>
+            </label>
+          </div>
+          ${!hasFolder ? `<div class="settings-card-desc" style="margin-top:6px;color:var(--muted)">${t('export_needs_folder')}</div>` : ''}
         </div>
       </div>
     </div>`;
@@ -1370,6 +1726,27 @@ async function saveEditProject(pid) {
   if (!proj) return;
   proj.name = name;
   proj.description = descInput ? descInput.value.trim() : '';
+
+  const card = document.querySelector(`.project-settings-item[data-proj-id="${pid}"]`);
+  if (card) {
+    // Color
+    const trigger = card.querySelector('[data-color-trigger]');
+    if (trigger) proj.color = trigger.dataset.color;
+    // Stakeholders
+    const stakeInput = card.querySelector('[data-proj-field="stakeholders"]');
+    if (stakeInput) {
+      proj.stakeholders = stakeInput.value.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    // Export flags: solo si hay carpeta configurada (si no, se preservan)
+    const hasFolder = !!(proj.output_dir && proj.output_dir.trim());
+    if (hasFolder) {
+      const get = f => card.querySelector(`[data-export-field="${f}"]`);
+      if (get('html'))       proj.export_save_html       = get('html').checked;
+      if (get('email'))      proj.export_save_email      = get('email').checked;
+      if (get('transcript')) proj.export_save_transcript = get('transcript').checked;
+    }
+  }
+
   await pywebview.api.save_project(proj);
   await loadProjectsSettings();
 }
@@ -1400,9 +1777,49 @@ async function saveNewProject() {
   await loadProjectsSettings();
 }
 
+// ── Modal de confirmación genérico ────────────────────────────────────────────
+
+let _confirmCallback = null;
+
+function openConfirmModal(message, onConfirm, { title = '', okLabel = '' } = {}) {
+  _confirmCallback = onConfirm;
+  const msgEl = document.getElementById('confirm-modal-msg');
+  if (msgEl) msgEl.textContent = message;
+  const titleEl = document.getElementById('confirm-modal-title');
+  if (titleEl) titleEl.textContent = title || t('confirm_delete_title');
+  const okBtn = document.getElementById('confirm-modal-ok');
+  if (okBtn) {
+    okBtn.textContent = okLabel || t('btn_delete');
+    okBtn.onclick = () => {
+      const cb = _confirmCallback;
+      closeConfirmModal();
+      if (cb) cb();
+    };
+  }
+  document.getElementById('confirm-modal').classList.remove('hidden');
+}
+
+function closeConfirmModal() {
+  _confirmCallback = null;
+  document.getElementById('confirm-modal').classList.add('hidden');
+}
+
 async function deleteProject(id) {
-  await pywebview.api.delete_project(id);
-  await loadProjectsSettings();
+  let name = '';
+  try {
+    const projects = await pywebview.api.get_projects();
+    const proj = projects.find(p => p.id === id);
+    if (proj) name = proj.name;
+  } catch (_) {}
+  openConfirmModal(
+    t('confirm_delete_project', name),
+    async () => {
+      await pywebview.api.delete_project(id);
+      allProjects = await pywebview.api.get_projects();
+      await loadProjectsSettings();
+    },
+    { title: t('confirm_delete_title') },
+  );
 }
 
 async function browseProjectFolder(pid) {
@@ -1413,7 +1830,7 @@ async function browseProjectFolder(pid) {
   if (!proj) return;
   proj.output_dir = path;
   await pywebview.api.save_project(proj);
-  await loadProjectsSettings();
+  await loadProjectsSettings(_editingProjectId);  // mantener el modo edición si estaba activo
 }
 
 async function clearProjectFolder(pid) {
@@ -1422,7 +1839,7 @@ async function clearProjectFolder(pid) {
   if (!proj) return;
   proj.output_dir = '';
   await pywebview.api.save_project(proj);
-  await loadProjectsSettings();
+  await loadProjectsSettings(_editingProjectId);  // mantener el modo edición si estaba activo
 }
 
 async function browseNewProjectFolder() {
@@ -1721,9 +2138,11 @@ async function openHtml(path) {
 // ── Badge ─────────────────────────────────────────────────────────────────────
 
 async function refreshPendingBadge() {
-  const actions = await pywebview.api.get_all_pending_actions();
-  const count   = actions.filter(a => !a.executed).length;
-  const badge   = document.getElementById('pending-badge');
+  const data  = await pywebview.api.get_tasks();
+  const tasks = (data && data.tasks) || [];
+  const count = tasks.filter(t => t.status !== 'done').length;
+  const badge = document.getElementById('pending-badge');
+  if (!badge) return;
   badge.style.display = count > 0 ? 'flex' : 'none';
   badge.textContent   = count > 9 ? '9+' : String(count);
 }

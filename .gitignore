@@ -2,6 +2,7 @@
 recordings/
 minutes/
 inbox/
+trash/
 .env
 settings.json
 projects.json
