@@ -26,14 +26,14 @@ Escribe el cuerpo de un email de notificación con estas reglas:
 - Sin jerga técnica: nada de nombres de ficheros, funciones, variables ni errores de código
 - Si hay correcciones de errores, di algo como "Se han corregido problemas en [funcionalidad en lenguaje de usuario]"
 - Agrupa los cambios en categorías si tiene sentido: Nuevas funciones · Mejoras · Correcciones
-- Termina siempre con este bloque exacto (sin modificar nada):
+- Termina siempre con este párrafo exacto (cópialo literalmente, sin backticks, sin markdown, sin caracteres especiales):
 
 Para actualizar, abre PowerShell y ejecuta:
 
-    {pull_cmd}
+{pull_cmd}
 
 La app se reiniciará automáticamente.
-- Responde solo con el cuerpo del email, en español, sin asunto ni firma
+- Responde solo con el cuerpo del email, en español, sin asunto ni firma, sin ningún formato markdown
 """
 
 
