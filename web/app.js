@@ -79,6 +79,13 @@ const T = {
     done_from_terminal: 'completado desde terminal',
     runs_fab_running: 'corriendo', runs_fab_done: 'runs',
     btn_regenerate: 'Regenerar minutas',
+    btn_edit: 'Editar notas',
+    edit_notes_hint: 'Edita las notas directamente y guarda. Los cambios se usarán en HTML y email.',
+    notes_saved: 'Notas guardadas',
+    fmt_bold: 'Negrita', fmt_italic: 'Cursiva', fmt_h2: 'Título', fmt_h3: 'Subtítulo', fmt_text: 'Texto normal', fmt_list: 'Lista',
+    fmt_table: 'Tabla', table_need_cursor: 'Pon el cursor dentro de una tabla',
+    tbl_insert: 'Insertar tabla', tbl_addrow: 'Añadir fila', tbl_delrow: 'Eliminar fila',
+    tbl_addcol: 'Añadir columna', tbl_delcol: 'Eliminar columna', tbl_delete: 'Eliminar tabla',
     regen_placeholder: 'Objetivo o contexto adicional para regenerar las minutas... ej: "El objetivo es entender mejor los conceptos de arquitectura agéntica"',
     regen_confirm: 'Regenerar',
     regen_cancel: 'Cancelar',
@@ -233,6 +240,13 @@ const T = {
     done_from_terminal: 'completed from terminal',
     runs_fab_running: 'running', runs_fab_done: 'runs',
     btn_regenerate: 'Regenerate notes',
+    btn_edit: 'Edit notes',
+    edit_notes_hint: 'Edit the notes directly and save. Changes are used for HTML and email.',
+    notes_saved: 'Notes saved',
+    fmt_bold: 'Bold', fmt_italic: 'Italic', fmt_h2: 'Heading', fmt_h3: 'Subheading', fmt_text: 'Normal text', fmt_list: 'List',
+    fmt_table: 'Table', table_need_cursor: 'Place the cursor inside a table',
+    tbl_insert: 'Insert table', tbl_addrow: 'Add row', tbl_delrow: 'Delete row',
+    tbl_addcol: 'Add column', tbl_delcol: 'Delete column', tbl_delete: 'Delete table',
     regen_placeholder: 'Objective or additional context to regenerate notes... e.g. "My goal is to better understand agentic architecture concepts"',
     regen_confirm: 'Regenerate',
     regen_cancel: 'Cancel',
@@ -369,6 +383,25 @@ function applyLang(lang) {
 const meetingPaths  = {};   // idx -> path
 const actionPaths   = {};   // i -> {path, index}
 
+// Iconos SVG (usan currentColor → se adaptan al color del botón y al tema)
+const ICONS = {
+  claude:  `<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 2c.45 4.6 3.4 7.55 8 8-4.6.45-7.55 3.4-8 8-.45-4.6-3.4-7.55-8-8 4.6-.45 7.55-3.4 8-8z"/></svg>`,
+  edit:    `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+  refresh: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5"/></svg>`,
+  email:   `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`,
+  html:    `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4"/></svg>`,
+};
+
+// Cerrar el menú de tabla del editor al hacer clic fuera
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('table-menu');
+  if (menu && !menu.classList.contains('hidden')) {
+    if (!e.target.closest || !e.target.closest('.notes-tool-dropdown')) {
+      menu.classList.add('hidden');
+    }
+  }
+});
+
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 
 window.addEventListener('pywebviewready', async () => {
@@ -401,6 +434,16 @@ async function loadMeetings() {
   meetings.forEach((m, i) => { meetingPaths[i] = m.path; });
   renderSidebar(meetings);
   if (meetings.length > 0) openMeeting(meetings[0].path);
+}
+
+// Llamada desde Python cuando se pide "abrir la app" y ya hay una ventana abierta:
+// refresca la lista/estado y, si se indica, abre esa reunión — sin abrir otra ventana.
+async function externalRefresh(path) {
+  try { await refreshMeetingList(); } catch (_) {}
+  try { await refreshPendingBadge(); } catch (_) {}
+  if (path) {
+    try { openMeeting(path); } catch (_) {}
+  }
 }
 
 async function refreshMeetingList() {
@@ -724,6 +767,7 @@ function dayLabel(dateStr) {
 async function openMeeting(path) {
   currentPath = path;
   _regenVisible = false;
+  _editingNotes = false;
 
   document.querySelectorAll('.meeting-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.meeting-item').forEach(el => {
@@ -763,10 +807,11 @@ async function openMeeting(path) {
           </div>
         </div>
         <div class="detail-actions-bar">
-          <button class="btn btn-primary btn-sm" id="btn-claude">${t('btn_chat')}</button>
-          <button class="btn btn-ghost btn-sm" id="btn-regenerate">${t('btn_regenerate')}</button>
-          <button class="btn btn-ghost btn-sm" id="btn-email">Email</button>
-          <button class="btn btn-ghost btn-sm" id="btn-html">HTML</button>
+          <button class="btn btn-primary btn-sm btn-icon" id="btn-claude" title="${t('btn_chat')}">${ICONS.claude}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" id="btn-edit" title="${t('btn_edit')}">${ICONS.edit}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" id="btn-regenerate" title="${t('btn_regenerate')}">${ICONS.refresh}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" id="btn-email" title="Email">${ICONS.email}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" id="btn-html" title="HTML">${ICONS.html}</button>
         </div>
       </div>
       <div class="regen-bar hidden" id="regen-bar">
@@ -800,6 +845,7 @@ async function openMeeting(path) {
   document.getElementById('btn-html').addEventListener('click', () => openHtml(path));
   document.getElementById('btn-claude').addEventListener('click', () => openMinutesInClaude(path));
   document.getElementById('btn-regenerate').addEventListener('click', () => toggleRegenBar());
+  document.getElementById('btn-edit').addEventListener('click', () => toggleEditNotes(path));
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
 
@@ -884,6 +930,231 @@ async function refreshMeetingActions(path) {
     actionsDiv.innerHTML = `<div style="color:var(--muted);font-size:13px">${t('no_actions')}</div>`;
   }
   try { refreshPendingBadge(); } catch (_) {}
+}
+
+// ── Editar notas a mano ───────────────────────────────────────────────────────
+
+let _editingNotes = false;
+
+async function toggleEditNotes(path) {
+  if (_editingNotes) return;
+  const sec = document.getElementById('section-notes');
+  if (!sec) return;
+  // Asegurar que estamos en la pestaña de Notas
+  document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-notes')?.classList.add('active');
+  document.getElementById('section-notes')?.classList.remove('hidden');
+  document.getElementById('section-actions')?.classList.add('hidden');
+
+  let html = '';
+  try { html = await pywebview.api.get_minutes_html(path); } catch (_) {}
+  _editingNotes = true;
+  sec.innerHTML = `
+    <div class="notes-edit-toolbar">
+      <div class="notes-edit-tools">
+        <button class="notes-tool" data-cmd="bold" title="${t('fmt_bold')}"><b>B</b></button>
+        <button class="notes-tool" data-cmd="italic" title="${t('fmt_italic')}"><i>I</i></button>
+        <button class="notes-tool" data-block="H2" title="${t('fmt_h2')}">H2</button>
+        <button class="notes-tool" data-block="H3" title="${t('fmt_h3')}">H3</button>
+        <button class="notes-tool" data-block="P" title="${t('fmt_text')}">¶</button>
+        <button class="notes-tool" data-cmd="insertUnorderedList" title="${t('fmt_list')}">•</button>
+        <span class="notes-tool-dropdown">
+          <button class="notes-tool" data-action="tablemenu" title="${t('fmt_table')}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 14h18M9 4v16M15 4v16"/></svg> ▾</button>
+          <div class="table-menu hidden" id="table-menu">
+            <button data-tbl="insert">${t('tbl_insert')}</button>
+            <button data-tbl="addrow">${t('tbl_addrow')}</button>
+            <button data-tbl="delrow">${t('tbl_delrow')}</button>
+            <button data-tbl="addcol">${t('tbl_addcol')}</button>
+            <button data-tbl="delcol">${t('tbl_delcol')}</button>
+            <button data-tbl="deltable" class="table-menu-danger">${t('tbl_delete')}</button>
+          </div>
+        </span>
+      </div>
+      <div class="notes-edit-btns">
+        <button class="btn btn-primary btn-sm" id="btn-notes-save">${t('save_btn')}</button>
+        <button class="btn btn-ghost btn-sm" id="btn-notes-cancel">${t('regen_cancel')}</button>
+      </div>
+    </div>
+    <div class="notes-edit-hint">${t('edit_notes_hint')}</div>
+    <div class="notes-edit-area minutes-content" id="notes-edit-area" contenteditable="true">${html ? sanitizeHtml(html) : ''}</div>`;
+  const area = document.getElementById('notes-edit-area');
+  if (area) area.focus();
+  // Barra de formato fija (sticky) bajo las pestañas mientras editas
+  const _tb = sec.querySelector('.notes-edit-toolbar');
+  const _hdr = document.querySelector('.detail-header');
+  const _tabs = document.querySelector('.detail-tabs');
+  if (_tb) _tb.style.top = ((_hdr?.offsetHeight || 0) + (_tabs?.offsetHeight || 0)) + 'px';
+  sec.querySelectorAll('.notes-tool').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.preventDefault());  // no perder la selección
+    btn.addEventListener('click', () => {
+      if (btn.dataset.action === 'tablemenu') {
+        document.getElementById('table-menu')?.classList.toggle('hidden');
+        return;
+      }
+      area.focus();
+      if (btn.dataset.cmd) document.execCommand(btn.dataset.cmd, false, null);
+      else if (btn.dataset.block) document.execCommand('formatBlock', false, btn.dataset.block);
+    });
+  });
+  sec.querySelectorAll('#table-menu button').forEach(mi => {
+    mi.addEventListener('mousedown', e => e.preventDefault());
+    mi.addEventListener('click', () => {
+      _tableOp(area, mi.dataset.tbl);
+      document.getElementById('table-menu')?.classList.add('hidden');
+    });
+  });
+  document.getElementById('btn-notes-save').onclick = async () => {
+    const md = htmlToMarkdown(area);
+    let ok = false;
+    try { ok = await pywebview.api.save_minutes_notes(path, md); } catch (_) {}
+    _editingNotes = false;
+    if (ok) showToast(t('notes_saved'));
+    await _reRenderNotes(path);
+  };
+  document.getElementById('btn-notes-cancel').onclick = async () => {
+    _editingNotes = false;
+    await _reRenderNotes(path);
+  };
+}
+
+// Convierte el HTML del editor visual a Markdown (cubre los elementos de las notas:
+// h1-h3, párrafos, listas, negrita/cursiva, enlaces, saltos de línea).
+function htmlToMarkdown(root) {
+  function inline(node) {
+    let out = '';
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) { out += n.textContent; return; }
+      if (n.nodeType !== 1) return;
+      const tag = n.tagName.toLowerCase();
+      const inner = inline(n);
+      if (tag === 'strong' || tag === 'b') out += `**${inner}**`;
+      else if (tag === 'em' || tag === 'i') out += `*${inner}*`;
+      else if (tag === 'code') out += '`' + inner + '`';
+      else if (tag === 'a') out += `[${inner}](${n.getAttribute('href') || ''})`;
+      else if (tag === 'br') out += '\n';
+      else out += inner;
+    });
+    return out;
+  }
+  function tableToMarkdown(table) {
+    const trs = [...table.querySelectorAll('tr')];
+    const out = [];
+    trs.forEach((tr, ri) => {
+      const cells = [...tr.children].map(c => (inline(c).trim().replace(/\|/g, '\\|')) || ' ');
+      out.push('| ' + cells.join(' | ') + ' |');
+      if (ri === 0) out.push('| ' + cells.map(() => '---').join(' | ') + ' |');
+    });
+    return out;
+  }
+  const lines = [];
+  function block(node) {
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) { const t = n.textContent.trim(); if (t) lines.push(t, ''); return; }
+      if (n.nodeType !== 1) return;
+      const tag = n.tagName.toLowerCase();
+      if (tag === 'h1') lines.push('# ' + inline(n).trim(), '');
+      else if (tag === 'h2') lines.push('## ' + inline(n).trim(), '');
+      else if (tag === 'h3') lines.push('### ' + inline(n).trim(), '');
+      else if (tag === 'p' || tag === 'div') { const t = inline(n).trim(); if (t) lines.push(t, ''); else block(n); }
+      else if (tag === 'ul') { n.querySelectorAll(':scope > li').forEach(li => lines.push('- ' + inline(li).trim())); lines.push(''); }
+      else if (tag === 'ol') { let i = 1; n.querySelectorAll(':scope > li').forEach(li => lines.push((i++) + '. ' + inline(li).trim())); lines.push(''); }
+      else if (tag === 'table') { tableToMarkdown(n).forEach(l => lines.push(l)); lines.push(''); }
+      else if (tag === 'blockquote') { lines.push('> ' + inline(n).trim(), ''); }
+      else if (tag === 'br') { lines.push(''); }
+      else { const t = inline(n).trim(); if (t) lines.push(t, ''); }
+    });
+  }
+  block(root);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+// ── Edición de tablas en el editor visual ─────────────────────────────────────
+
+function _placeCaret(node) {
+  try {
+    const sel = window.getSelection();
+    const r = document.createRange();
+    r.setStart(node, 0); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+  } catch (_) {}
+}
+
+// Contexto de tabla en la posición del cursor: {table, tr, cell, cellIndex} o null
+function _tableCtx(area) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return null;
+  let node = sel.anchorNode, cell = null, tr = null, table = null;
+  while (node && node !== area) {
+    if (node.nodeType === 1) {
+      const tag = node.tagName;
+      if (!cell && (tag === 'TD' || tag === 'TH')) cell = node;
+      if (!tr && tag === 'TR') tr = node;
+      if (tag === 'TABLE') { table = node; break; }
+    }
+    node = node.parentNode;
+  }
+  if (!table) return null;
+  if (!tr && cell) tr = cell.parentNode;
+  const cellIndex = (cell && tr) ? [...tr.children].indexOf(cell) : 0;
+  return { table, tr, cell, cellIndex };
+}
+
+function _insertTable(area) {
+  area.focus();
+  const cols = 3, rows = 2;
+  let html = '<table>';
+  for (let r = 0; r < rows; r++) {
+    html += '<tr>';
+    for (let c = 0; c < cols; c++) {
+      const tag = r === 0 ? 'th' : 'td';
+      html += `<${tag}>${r === 0 ? 'Columna ' + (c + 1) : '&nbsp;'}</${tag}>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table><p><br></p>';
+  document.execCommand('insertHTML', false, html);
+}
+
+function _tableOp(area, op) {
+  area.focus();
+  if (op === 'insert') { _insertTable(area); return; }
+  const ctx = _tableCtx(area);
+  if (!ctx) { showToast(t('table_need_cursor')); return; }
+  const { table, tr, cellIndex } = ctx;
+  const rows = [...table.querySelectorAll('tr')];
+  if (op === 'addrow') {
+    const cols = (tr || rows[0]).children.length || 1;
+    const nr = document.createElement('tr');
+    for (let i = 0; i < cols; i++) { const td = document.createElement('td'); td.innerHTML = '<br>'; nr.appendChild(td); }
+    (tr || rows[rows.length - 1]).after(nr);
+    _placeCaret(nr.firstChild);
+  } else if (op === 'delrow') {
+    if (rows.length <= 1) { table.remove(); return; }
+    (tr || rows[rows.length - 1]).remove();
+  } else if (op === 'addcol') {
+    rows.forEach(r => {
+      const isHead = !!r.querySelector('th') && !r.querySelector('td');
+      const cell = document.createElement(isHead ? 'th' : 'td');
+      cell.innerHTML = isHead ? 'Columna' : '<br>';
+      const ref = r.children[cellIndex];
+      if (ref && ref.nextSibling) r.insertBefore(cell, ref.nextSibling);
+      else r.appendChild(cell);
+    });
+  } else if (op === 'delcol') {
+    const colCount = rows[0] ? rows[0].children.length : 0;
+    if (colCount <= 1) { table.remove(); return; }
+    rows.forEach(r => { const c = r.children[cellIndex]; if (c) c.remove(); });
+  } else if (op === 'deltable') {
+    table.remove();
+  }
+}
+
+async function _reRenderNotes(path) {
+  const sec = document.getElementById('section-notes');
+  if (!sec) return;
+  let html = '';
+  try { html = await pywebview.api.get_minutes_html(path); } catch (_) {}
+  sec.innerHTML = `<div class="minutes-content">${html ? sanitizeHtml(html) : `<em>${t('no_minutes')}</em>`}</div>`;
 }
 
 // ── Meta row compartida (Owner · Creada · Deadline · badge) ──────────────────

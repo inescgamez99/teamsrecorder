@@ -25,6 +25,25 @@ _WEB_DIR = Path(__file__).parent / 'web'
 _window = None
 _window_lock = threading.Lock()
 
+# Ventana única: lock con el PID de la ventana abierta + fichero de comando que
+# la ventana vigila para enfocarse/refrescarse sin abrir una nueva.
+_WINDOW_LOCK = PROJECT_DIR / '.window.lock'
+_WINDOW_CMD  = PROJECT_DIR / '.window_cmd'
+
+
+def _window_is_open() -> bool:
+    """True si hay una ventana de la app abierta (según el lock de ventana)."""
+    try:
+        if not _WINDOW_LOCK.exists():
+            return False
+        pid = int((_WINDOW_LOCK.read_text(encoding='utf-8').strip() or '0'))
+        if not pid:
+            return False
+        import psutil
+        return psutil.pid_exists(pid)
+    except Exception:
+        return False
+
 # Estado de ejecuciones de acciones en el panel interno
 _action_runs: dict = {}
 
@@ -148,6 +167,62 @@ class AppAPI:
                 return f'<pre style="white-space:pre-wrap">{md_text}</pre>'
         except Exception as e:
             return f'<em>Error: {e}</em>'
+
+    def get_minutes_raw(self, path: str) -> str:
+        """Devuelve el markdown crudo de las minutas (para editar a mano)."""
+        try:
+            return Path(path).read_text(encoding='utf-8')
+        except Exception:
+            return ''
+
+    def save_minutes_md(self, path: str, content: str) -> bool:
+        """Guarda las notas editadas por el usuario y regenera el HTML exportado
+        para que Email/HTML reflejen la edición."""
+        p = Path(path)
+        try:
+            p.write_text(content, encoding='utf-8')
+            # Evitar que el JSON de acciones se marque como obsoleto por el nuevo mtime del .md
+            try:
+                from actions_enricher import get_actions_path
+                ap = get_actions_path(p)
+                if ap.exists():
+                    os.utime(ap, None)
+            except Exception:
+                pass
+            # Regenerar el HTML exportado
+            try:
+                from html_exporter import export_to_html
+                meta = _parse_stem(p.stem)
+                export_to_html(p, meta['title'], open_browser=False)
+            except Exception as e:
+                log.warning(f"save_minutes_md html: {e}")
+            log.info(f"save_minutes_md: {p.stem}")
+            return True
+        except Exception as e:
+            log.error(f"save_minutes_md: {e}")
+            return False
+
+    def save_minutes_notes(self, path: str, notes_md: str) -> bool:
+        """Guarda las notas editadas desde el editor visual (sin la sección de
+        Acciones, que se preserva del .md actual). Regenera el HTML exportado."""
+        p = Path(path)
+        try:
+            current = ''
+            try:
+                current = p.read_text(encoding='utf-8')
+            except Exception:
+                pass
+            # Preservar la sección de Acciones Pendientes (no se edita en el editor visual)
+            m = re.search(
+                r'\n(##\s+(?:Acciones\s+Pendientes|Pending\s+Actions)\b.*?)(?=\n##\s|\Z)',
+                current, flags=re.IGNORECASE | re.DOTALL,
+            )
+            actions_section = m.group(1).rstrip() if m else ''
+            new_md = notes_md.rstrip() + (('\n\n' + actions_section + '\n') if actions_section else '\n')
+            return self.save_minutes_md(str(p), new_md)
+        except Exception as e:
+            log.error(f"save_minutes_notes: {e}")
+            return False
 
     def get_actions(self, path: str) -> list:
         """Devuelve las acciones de una minuta (del JSON enriquecido)."""
@@ -1411,8 +1486,22 @@ def open_app(initial_path: str = None):
     """
     Lanza la ventana como proceso separado (pywebview necesita el hilo principal,
     que ya está ocupado por pystray).
+    Si ya hay una ventana abierta, la enfoca y refresca en vez de abrir otra.
     """
     import sys
+    # Ventana única: reutilizar la existente
+    if _window_is_open():
+        try:
+            _WINDOW_CMD.write_text(initial_path or 'focus', encoding='utf-8')
+            if os.name == 'nt':
+                try:
+                    import ctypes
+                    ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+                except Exception:
+                    pass
+            return
+        except Exception as e:
+            log.warning(f"open_app reuse window: {e}")
     if os.name == 'nt':
         try:
             import ctypes
@@ -1473,6 +1562,52 @@ def _run_window(initial_path: str = None):
         text_select=True,
     )
     _window = win
+
+    # Registrar esta ventana como la única abierta
+    try:
+        _WINDOW_LOCK.write_text(str(os.getpid()), encoding='utf-8')
+    except Exception:
+        pass
+
+    def _focus_and_refresh(cmd: str):
+        # Traer la ventana al frente
+        if os.name == 'nt':
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.FindWindowW(None, 'TeamsRecorder')
+                if hwnd:
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+        # Refrescar el contenido (y abrir una reunión concreta si se indicó)
+        path = cmd if (cmd and cmd != 'focus') else ''
+        try:
+            win.evaluate_js(f"if(typeof externalRefresh==='function') externalRefresh({json.dumps(path)})")
+        except Exception:
+            pass
+
+    def _cmd_poller():
+        import time as _t
+        while True:
+            _t.sleep(0.7)
+            try:
+                if _WINDOW_CMD.exists():
+                    cmd = _WINDOW_CMD.read_text(encoding='utf-8').strip()
+                    _WINDOW_CMD.unlink()
+                    _focus_and_refresh(cmd)
+            except Exception:
+                pass
+
+    threading.Thread(target=_cmd_poller, daemon=True, name='WindowCmdPoller').start()
+
+    def _on_closed():
+        try:
+            _WINDOW_LOCK.unlink()
+        except Exception:
+            pass
+
+    win.events.closed += _on_closed
 
     def on_ready():
         if _icon.exists():
