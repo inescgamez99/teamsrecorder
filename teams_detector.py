@@ -58,14 +58,15 @@ def _check_window_titles(pids: list[int]) -> tuple[bool, str | None]:
                             meeting_name = candidate
                     return
 
-                # Teams 2.0: "<Meeting> | <Org> | <email@...> | Microsoft Teams"
-                if raw.endswith('Microsoft Teams') and raw.count('|') >= 2:
+                # Teams 2.0: cualquier "<No-genérico> | ... | Microsoft Teams"
+                # Formatos observados: "Reunión | Org | email | MS Teams",
+                # "placeholder | MS Teams", "Reunión | MS Teams" (sin email)
+                if raw.endswith('Microsoft Teams') and '|' in raw:
                     parts = [p.strip() for p in raw.split('|')]
                     first = parts[0].strip()
-                    has_email = any('@' in p for p in parts)
-                    if first.lower() not in _TEAMS_GENERIC_PAGES and has_email:
+                    if first.lower() not in _TEAMS_GENERIC_PAGES:
                         found = True
-                        if meeting_name is None:
+                        if meeting_name is None and first.lower() != 'placeholder':
                             meeting_name = first
             except Exception:
                 pass
@@ -152,13 +153,10 @@ class TeamsCallDetector:
                         audio_active = _check_audio_session(pids)
                         title_active, detected_name = _check_window_titles(pids)
 
-                    # Para INICIAR grabación: exigir título de reunión (evita falsos positivos
-                    # por notificaciones / vídeos de Teams que activan sesión de audio sin reunión).
-                    # Para MANTENER llamada en curso: audio O título es suficiente.
-                    if not self._in_call:
-                        active = title_active
-                    else:
-                        active = audio_active or title_active
+                    # Para INICIAR: título O audio (Teams 2.0 en llamadas 1:1 muestra
+                    # "Chat | Nombre | MS Teams" que no tiene título de reunión).
+                    # Para MANTENER: ídem.
+                    active = title_active or audio_active
 
                     # Detectar cuándo el título vuelve a ser genérico (señal fuerte de fin)
                     if self._in_call and not title_active:
