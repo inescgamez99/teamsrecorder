@@ -20,21 +20,30 @@ _PROMPT_TEMPLATE = """Eres el asistente de comunicación de TeamsRecorder, una a
 El equipo ha publicado una nueva versión. Estos son los cambios (mensajes de commit de git):
 {commits}
 
-Escribe el cuerpo de un email de notificación con estas reglas:
+Escribe el cuerpo de un email de notificación en HTML con estas reglas:
 - Tono: profesional y cercano, como las notas de actualización de iOS/Apple
-- Máximo 150 palabras
+- Máximo 150 palabras de contenido
 - Sin jerga técnica: nada de nombres de ficheros, funciones, variables ni errores de código
-- Si hay correcciones de errores, di algo como "Se han corregido problemas en [funcionalidad en lenguaje de usuario]"
-- Agrupa los cambios en categorías si tiene sentido: Nuevas funciones · Mejoras · Correcciones
-- Termina siempre con este párrafo exacto (cópialo literalmente, sin backticks, sin markdown, sin caracteres especiales):
+- Agrupa los cambios en categorías si tiene sentido. Las categorías disponibles son: Nuevas funciones, Mejoras, Correcciones
+- Cada categoría debe tener su nombre en <strong><u>Nombre categoría</u></strong>
+- Los elementos de cada categoría van en una lista <ul> con <li> por item
+- Termina siempre con este bloque HTML exacto, sin modificarlo:
 
-Para actualizar, abre PowerShell y ejecuta:
+<p>Para actualizar, abre PowerShell y ejecuta:</p>
+<pre style="background:#f4f4f4;padding:8px;border-radius:4px;font-family:monospace">{pull_cmd}</pre>
+<p>La app se reiniciará automáticamente.</p>
 
-{pull_cmd}
-
-La app se reiniciará automáticamente.
-- Responde solo con el cuerpo del email, en español, sin asunto ni firma, sin ningún formato markdown
+- Responde SOLO con el HTML del cuerpo del email (sin <html>, sin <head>, sin <body>), en español, sin asunto ni firma
 """
+
+_FOOTER_HTML = f"""<p>Para actualizar, abre PowerShell y ejecuta:</p>
+<pre style="background:#f4f4f4;padding:8px;border-radius:4px;font-family:monospace">{_PULL_CMD}</pre>
+<p>La app se reiniciará automáticamente.</p>"""
+
+_EMAIL_WRAPPER = """\
+<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1a1a1a;max-width:600px;line-height:1.6">
+{body}
+</div>"""
 
 
 def send_update_email(commits_text: str) -> bool:
@@ -50,7 +59,7 @@ def send_update_email(commits_text: str) -> bool:
     if not recipients:
         return False
 
-    body = _generate_body(commits_text)
+    html_body = _generate_html(commits_text)
     subject = f"TeamsRecorder — Novedades {datetime.now().strftime('%d/%m/%Y')}"
 
     try:
@@ -58,7 +67,7 @@ def send_update_email(commits_text: str) -> bool:
         outlook = win32com.client.Dispatch('Outlook.Application')
         mail = outlook.CreateItem(0)
         mail.Subject = subject
-        mail.Body = body
+        mail.HTMLBody = _EMAIL_WRAPPER.format(body=html_body)
         for email in recipients:
             mail.Recipients.Add(email)
         mail.Recipients.ResolveAll()
@@ -70,8 +79,8 @@ def send_update_email(commits_text: str) -> bool:
         return False
 
 
-def _generate_body(commits_text: str) -> str:
-    """Intenta resumen IA; si falla, devuelve formato manual."""
+def _generate_html(commits_text: str) -> str:
+    """Intenta resumen IA en HTML; si falla, devuelve HTML manual."""
     if _CLAUDE_BIN:
         prompt = _PROMPT_TEMPLATE.format(commits=commits_text, pull_cmd=_PULL_CMD)
         try:
@@ -90,14 +99,13 @@ def _generate_body(commits_text: str) -> str:
         except Exception:
             pass
 
-    # Fallback: formato manual con el comando de pull
+    # Fallback: HTML manual con bullet points
     lines = [l.strip().lstrip('- ') for l in commits_text.splitlines() if l.strip()]
-    bullets = '\n'.join(f'  • {l}' for l in lines)
+    items = '\n'.join(f'<li>{l}</li>' for l in lines)
     return (
-        f"Hola,\n\n"
-        f"TeamsRecorder ha recibido una nueva actualización con los siguientes cambios:\n\n"
-        f"{bullets}\n\n"
-        f"Para actualizar, abre PowerShell y ejecuta:\n\n"
-        f"    {_PULL_CMD}\n\n"
-        f"La app se reiniciará automáticamente."
+        f"<p>Hola,</p>"
+        f"<p>TeamsRecorder ha recibido una nueva actualización:</p>"
+        f"<p><strong><u>Cambios</u></strong></p>"
+        f"<ul>{items}</ul>"
+        f"{_FOOTER_HTML}"
     )
