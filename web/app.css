@@ -1118,23 +1118,14 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui,
 /* Barra de acciones — iconos de reunión */
 .action-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border: none; border-radius: 7px;
+  width: 30px; height: 30px; padding: 0; border: none; border-radius: 7px;
   background: transparent; color: var(--subtext); cursor: pointer;
   transition: background 0.12s, color 0.12s; flex-shrink: 0;
 }
 .action-icon-btn:hover { background: var(--surface2); color: var(--text); }
-.action-icon-btn--accent {
-  background: var(--accent); color: white; margin-right: 4px;
-}
+.action-icon-btn--accent { background: var(--accent); color: white; }
 .action-icon-btn--accent:hover { background: var(--accent-dark); color: white; }
-.action-icon-btn--text { width: auto; padding: 0 8px; font-size: 12px; font-weight: 600; }
-.action-icon-group {
-  display: inline-flex; align-items: center;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; overflow: hidden;
-}
-.action-icon-group .action-icon-btn { border-radius: 0; border-right: 1px solid var(--border); }
-.action-icon-group .action-icon-btn:last-child { border-right: none; }
+.action-icon-btn--text { width: auto; padding: 0 9px; font-size: 12px; font-weight: 500; letter-spacing: 0.01em; }
 .notes-edit-area { width: 100%; min-height: 400px; font-family: monospace; font-size: 13px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); resize: vertical; box-sizing: border-box; }
 .notes-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
 
