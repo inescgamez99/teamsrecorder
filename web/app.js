@@ -779,11 +779,11 @@ async function openMeeting(path) {
           </div>
         </div>
         <div class="detail-actions-bar">
-          <button class="btn btn-primary btn-sm icon-btn" id="btn-claude"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Claude</span></button>
-          <button class="btn btn-ghost btn-sm" id="btn-regenerate">${t('btn_regenerate')}</button>
-          <button class="btn btn-ghost btn-sm icon-btn" id="btn-email"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg><span>Email</span></button>
-          <button class="btn btn-ghost btn-sm" id="btn-html">HTML</button>
-          <button class="btn btn-ghost btn-sm" id="btn-edit-notes">${t('btn_edit')}</button>
+          <button class="btn btn-primary btn-sm icon-only-btn" id="btn-claude" title="Claude"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.5C6.201 1.5 1.5 6.201 1.5 12S6.201 22.5 12 22.5 22.5 17.799 22.5 12 17.799 1.5 12 1.5zm.75 5.25v2.625l2.273-1.313.75 1.299-2.273 1.312 2.273 1.313-.75 1.299L12.75 11.97V14.25h-1.5V11.97l-2.273 1.313-.75-1.3 2.273-1.312-2.273-1.312.75-1.3L11.25 9.375V6.75h1.5z"/></svg></button>
+          <button class="btn btn-ghost btn-sm icon-only-btn" id="btn-regenerate" title="${t('btn_regenerate')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg></button>
+          <button class="btn btn-ghost btn-sm icon-only-btn" id="btn-email" title="Email"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+          <button class="btn btn-ghost btn-sm" id="btn-html" title="HTML">HTML</button>
+          <button class="btn btn-ghost btn-sm icon-only-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
         </div>
       </div>
       <div class="regen-bar hidden" id="regen-bar">
