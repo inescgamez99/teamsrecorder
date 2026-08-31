@@ -25,7 +25,7 @@ def _get_model():
         if _model is None:
             from faster_whisper import WhisperModel
             log.info(f"Cargando modelo Whisper '{WHISPER_MODEL}'...")
-            _model = WhisperModel(WHISPER_MODEL, device='auto', compute_type='auto')
+            _model = WhisperModel(WHISPER_MODEL, device='auto', compute_type='int8')
             log.info("Modelo Whisper cargado")
         return _model
 

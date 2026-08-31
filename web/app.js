@@ -1,3 +1,21 @@
+// ── Sanitización de HTML de reuniones ────────────────────────────────────────
+// Elimina scripts y atributos de evento antes de inyectar contenido de minutas.
+function sanitizeHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.querySelectorAll('script, object, embed, link[rel="import"]').forEach(el => el.remove());
+  tmp.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(attr => {
+      if (/^on/i.test(attr.name) ||
+          (attr.name === 'href' && /^javascript:/i.test(attr.value)) ||
+          (attr.name === 'src'  && /^javascript:/i.test(attr.value))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return tmp.innerHTML;
+}
+
 // ── Estado global ────────────────────────────────────────────────────────────
 let currentPath          = null;
 let allMeetings          = [];
@@ -137,6 +155,15 @@ const T = {
     modal_parent_none: 'Tarea nueva (nivel raíz)', modal_confirm: 'Añadir al panel',
     task_from_meeting: 'de reunión',
     drawer_title: 'Detalle de tarea',
+    pipeline_title: 'En curso',
+    settings_saved: 'Ajustes guardados',
+    btn_delete_meeting: 'Eliminar reunión',
+    btn_add_action: '+ Añadir acción',
+    add_action_title_ph: 'Título de la acción...',
+    add_action_assignee_ph: 'Responsable (opcional)',
+    add_action_deadline_ph: 'Fecha límite (opcional, YYYY-MM-DD)',
+    add_action_save: 'Guardar',
+    add_action_cancel: 'Cancelar',
   },
   en: {
     nav_notes: 'Notes', nav_action_panel: 'Action Panel', settings_nav: 'Settings',
@@ -260,6 +287,15 @@ const T = {
     modal_parent_none: 'New task (top level)', modal_confirm: 'Add to panel',
     task_from_meeting: 'from meeting',
     drawer_title: 'Task detail',
+    pipeline_title: 'In progress',
+    settings_saved: 'Settings saved',
+    btn_delete_meeting: 'Delete meeting',
+    btn_add_action: '+ Add action',
+    add_action_title_ph: 'Action title...',
+    add_action_assignee_ph: 'Assignee (optional)',
+    add_action_deadline_ph: 'Deadline (optional, YYYY-MM-DD)',
+    add_action_save: 'Save',
+    add_action_cancel: 'Cancel',
   },
 };
 
@@ -306,6 +342,9 @@ window.addEventListener('pywebviewready', async () => {
       }
     } catch (_) {}
   }, 3000);
+
+  // Pipeline status footer
+  setInterval(updatePipelineFooter, 2000);
 });
 
 async function loadMeetings() {
@@ -371,16 +410,21 @@ function renderSidebarByDays(meetings) {
           <div class="meeting-info">
             <div class="meeting-title">${escHtml(m.title)}</div>
           </div>
+          <button class="btn-delete-meeting" data-del-path="${escHtml(meetingPaths[m.idx] || '')}" title="${t('btn_delete_meeting')}">×</button>
         </div>
       `).join('')}
     </div>
   `).join('');
 
   list.querySelectorAll('.meeting-item').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.btn-delete-meeting')) return;
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
     });
+  });
+  list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); deleteMeeting(btn.dataset.delPath); });
   });
 }
 
@@ -424,6 +468,7 @@ function renderSidebarByProject(meetings) {
               <div class="meeting-title">${escHtml(m.title)}</div>
               <div class="meeting-meta">${m.date || ''}</div>
             </div>
+            <button class="btn-delete-meeting" data-del-path="${escHtml(meetingPaths[m.idx] || '')}" title="${t('btn_delete_meeting')}">×</button>
           </div>
         `).join('')}
       </div>
@@ -431,11 +476,31 @@ function renderSidebarByProject(meetings) {
   `).join('');
 
   list.querySelectorAll('.meeting-item').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.btn-delete-meeting')) return;
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
     });
   });
+  list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); deleteMeeting(btn.dataset.delPath); });
+  });
+}
+
+async function deleteMeeting(path) {
+  if (!path) return;
+  await pywebview.api.delete_meeting(path);
+  allMeetings = allMeetings.filter(m => m.path !== path);
+  renderSidebar(allMeetings);
+  if (currentPath === path) {
+    currentPath = null;
+    const panel = document.getElementById('detail-panel');
+    if (panel) panel.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-title">${t('empty_title')}</div>
+        <div class="empty-sub">${t('empty_sub')}</div>
+      </div>`;
+  }
 }
 
 function toggleProjectSidebarGroup(pid) {
@@ -523,7 +588,7 @@ async function openMeeting(path) {
         </button>
       </div>
       <div class="minutes-section" id="section-notes">
-        <div class="minutes-content">${minutesHtml || `<em>${t('no_minutes')}</em>`}</div>
+        <div class="minutes-content">${minutesHtml ? sanitizeHtml(minutesHtml) : `<em>${t('no_minutes')}</em>`}</div>
       </div>
       <div class="actions-section hidden" id="section-actions">
         <div class="actions-section-header">
@@ -565,8 +630,9 @@ async function openMeeting(path) {
     renderActionCards(actions, path, actionsDiv, meeting.date || '');
     _prefillWorkingDirs(actions, path);
   } else {
-    actionsDiv.innerHTML = `<div style="color:var(--muted);font-size:13px">${t('no_actions')}</div>`;
+    actionsDiv.innerHTML = `<div style="color:var(--muted);font-size:13px;margin-bottom:10px">${t('no_actions')}</div>`;
   }
+  _renderAddActionBtn(path, actionsDiv);
 }
 
 // ── Meta row compartida (Owner · Creada · Deadline · badge) ──────────────────
@@ -663,6 +729,55 @@ function renderActionCards(actions, path, container, meetingDate) {
 
   container.querySelectorAll('.prompt-box').forEach(el => {
     el.addEventListener('blur', () => savePrompt(path, parseInt(el.id.replace('prompt-', '')), el.value));
+  });
+}
+
+function _renderAddActionBtn(path, container) {
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'margin-top:10px';
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-ghost btn-sm';
+  btn.textContent = t('btn_add_action');
+  btn.addEventListener('click', () => showAddActionForm(path, container, wrapper));
+  wrapper.appendChild(btn);
+  container.appendChild(wrapper);
+}
+
+function showAddActionForm(path, container, btnWrapper) {
+  btnWrapper.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--card);border-radius:8px;margin-top:4px">
+      <input type="text" id="new-action-title" class="dir-input" placeholder="${escHtml(t('add_action_title_ph'))}" style="font-size:13px">
+      <input type="text" id="new-action-assignee" class="dir-input" placeholder="${escHtml(t('add_action_assignee_ph'))}" style="font-size:13px">
+      <input type="text" id="new-action-deadline" class="dir-input" placeholder="${escHtml(t('add_action_deadline_ph'))}" style="font-size:13px">
+      <div style="display:flex;gap:8px;margin-top:2px">
+        <button class="btn btn-primary btn-sm" id="btn-save-action">${t('add_action_save')}</button>
+        <button class="btn btn-ghost btn-sm" id="btn-cancel-action">${t('add_action_cancel')}</button>
+      </div>
+    </div>`;
+
+  document.getElementById('new-action-title').focus();
+
+  document.getElementById('btn-cancel-action').addEventListener('click', () => {
+    btnWrapper.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-ghost btn-sm';
+    btn.textContent = t('btn_add_action');
+    btn.addEventListener('click', () => showAddActionForm(path, container, btnWrapper));
+    btnWrapper.appendChild(btn);
+  });
+
+  document.getElementById('btn-save-action').addEventListener('click', async () => {
+    const title = document.getElementById('new-action-title').value.trim();
+    if (!title) { document.getElementById('new-action-title').focus(); return; }
+    const assignee = document.getElementById('new-action-assignee').value.trim();
+    const deadline = document.getElementById('new-action-deadline').value.trim();
+    const action = await pywebview.api.create_action(path, title, assignee, deadline);
+    if (action && action.index !== undefined) {
+      const actions = await pywebview.api.get_actions(path);
+      renderActionCards(actions, path, container, '');
+      _prefillWorkingDirs(actions, path);
+      _renderAddActionBtn(path, container);
+    }
   });
 }
 
@@ -1138,10 +1253,11 @@ async function loadExportSettings() {
     document.getElementById('export-email-check').checked      = s.export_save_email      !== false;
     document.getElementById('export-transcript-check').checked = s.export_save_transcript !== false;
   } catch (e) {
-    // Por defecto todo activado
     ['export-html-check', 'export-email-check', 'export-transcript-check']
       .forEach(id => { document.getElementById(id).checked = true; });
   }
+  const saveBtn = document.getElementById('btn-save-export');
+  if (saveBtn) saveBtn.addEventListener('click', saveExportSettings);
 }
 
 async function saveExportSettings() {
@@ -1150,6 +1266,7 @@ async function saveExportSettings() {
     export_save_email:      document.getElementById('export-email-check').checked,
     export_save_transcript: document.getElementById('export-transcript-check').checked,
   });
+  showToast(t('settings_saved'));
 }
 
 // ── Per-project field save ────────────────────────────────────────────────────
@@ -1555,6 +1672,7 @@ async function reenrichMeeting(path) {
     if (actions && actions.length > 0) {
       const mtg = allMeetings.find(m => m.path === path) || {};
       renderActionCards(actions, path, actionsDiv, mtg.date || '');
+      _renderAddActionBtn(path, actionsDiv);
       const count = document.querySelector('.actions-count');
       if (count) count.textContent = t('n_total', actions.length);
       if (btn) { btn.disabled = false; btn.innerHTML = `↺ ${t('btn_reenrich')}`; }
@@ -1684,6 +1802,7 @@ async function initSettings() {
       document.querySelectorAll('#theme-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       await pywebview.api.save_settings({ theme });
+      showToast(t('settings_saved'));
     });
   });
 
@@ -1695,6 +1814,7 @@ async function initSettings() {
       document.querySelectorAll('#lang-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       await pywebview.api.save_settings({ language: lang });
+      showToast(t('settings_saved'));
     });
   });
 
@@ -1703,8 +1823,18 @@ async function initSettings() {
     pywebview.api.get_settings().then(s => {
       nameInput.value = s.user_name || '';
     });
-    nameInput.addEventListener('change', async () => {
-      await pywebview.api.save_settings({ user_name: nameInput.value.trim() });
+    const saveNameBtn = document.getElementById('btn-save-name');
+    if (saveNameBtn) {
+      saveNameBtn.addEventListener('click', async () => {
+        await pywebview.api.save_settings({ user_name: nameInput.value.trim() });
+        showToast(t('settings_saved'));
+      });
+    }
+    nameInput.addEventListener('keydown', async e => {
+      if (e.key === 'Enter') {
+        await pywebview.api.save_settings({ user_name: nameInput.value.trim() });
+        showToast(t('settings_saved'));
+      }
     });
   }
 }
@@ -1928,7 +2058,7 @@ async function confirmRegen(path) {
           const sec = document.getElementById('section-notes');
           if (sec) {
             const mc = sec.querySelector('.minutes-content');
-            if (mc) mc.innerHTML = html;
+            if (mc) mc.innerHTML = sanitizeHtml(html);
           }
         }
         _restoreRegenBar(bar);
@@ -1976,4 +2106,55 @@ function initResize() {
     document.body.style.userSelect = '';
     localStorage.setItem('sidebarWidth', sidebar.offsetWidth);
   });
+}
+
+// ── Pipeline status tab + panel ───────────────────────────────────────────────
+
+let _pipelinePanelOpen = false;
+
+async function updatePipelineFooter() {
+  const tab  = document.getElementById('pipeline-tab');
+  const dot  = document.getElementById('pipeline-tab-dot');
+  const body = document.getElementById('pipeline-panel-body');
+  if (!tab || !body) return;
+
+  let status;
+  try { status = await pywebview.api.get_pipeline_status(); } catch (_) { return; }
+
+  const jobs = status?.jobs ?? [];
+
+  if (!jobs.length) {
+    tab.style.display = 'none';
+    if (_pipelinePanelOpen) togglePipelinePanel();
+    return;
+  }
+
+  tab.style.display = 'flex';
+  const anyRecording = jobs.some(j => j.stage === 'recording');
+  dot.className = 'pipeline-tab-dot ' + (anyRecording ? 'recording' : 'processing');
+
+  body.innerHTML = jobs.map(j => {
+    const dotClass = j.stage === 'recording' ? 'recording' : 'processing';
+    const pctHtml  = j.pct != null ? `<span class="pipeline-job-pct">${j.pct}%</span>` : '';
+    const progHtml = j.pct != null
+      ? `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:${j.pct}%"></div></div>`
+      : '';
+    return `
+      <div class="pipeline-job-card">
+        <div class="pipeline-job-header">
+          <span class="pipeline-job-dot ${dotClass}"></span>
+          <span class="pipeline-job-label">${escHtml(j.label)}</span>
+          ${pctHtml}
+        </div>
+        ${progHtml}
+      </div>`;
+  }).join('');
+}
+
+function togglePipelinePanel() {
+  _pipelinePanelOpen = !_pipelinePanelOpen;
+  const panel = document.getElementById('pipeline-panel');
+  const tab   = document.getElementById('pipeline-tab');
+  if (panel) panel.classList.toggle('open', _pipelinePanelOpen);
+  if (tab)   tab.style.display = _pipelinePanelOpen ? 'none' : 'flex';
 }

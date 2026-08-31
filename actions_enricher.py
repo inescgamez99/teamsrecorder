@@ -11,7 +11,7 @@ from config import PROJECT_DIR
 
 log = logging.getLogger(__name__)
 
-from config import CLAUDE_BIN as _CLAUDE_BIN
+from config import CLAUDE_BIN as _CLAUDE_BIN, clean_env as _clean_env
 
 _CLAUDE_TYPES = {'instruction', 'code_change', 'document_change'}
 
@@ -142,10 +142,7 @@ def _run_enrichment(minutes_path: Path, projects_dir: Path, on_done=None):
 {footer}"""
 
             try:
-                env = os.environ.copy()
-                for k in list(env.keys()):
-                    if k.startswith(('CLAUDE', 'MCP_', 'ANTHROPIC_')):
-                        del env[k]
+                env = _clean_env()
 
                 if os.name == 'nt':
                     si = subprocess.STARTUPINFO()

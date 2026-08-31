@@ -1,0 +1,5 @@
+# Lista de destinatarios de las notificaciones de actualización de TeamsRecorder.
+# Una dirección de email por línea. Las líneas que empiezan por # se ignoran.
+felipe.antunez@accenture.com
+maria.mollet@accenture.com
+ana.ocariz@accenture.com

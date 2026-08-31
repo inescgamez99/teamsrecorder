@@ -36,8 +36,8 @@ def find_meeting_participants(recording_time: datetime, window_minutes: int = 15
         items.IncludeRecurrences = True
 
         filter_str = (
-            f"[Start] >= '{start.strftime('%m/%d/%Y %H:%M %p')}' AND "
-            f"[Start] <= '{end.strftime('%m/%d/%Y %H:%M %p')}'"
+            f"[Start] >= '{start.strftime('%m/%d/%Y %I:%M %p')}' AND "
+            f"[Start] <= '{end.strftime('%m/%d/%Y %I:%M %p')}'"
         )
         filtered = items.Restrict(filter_str)
 

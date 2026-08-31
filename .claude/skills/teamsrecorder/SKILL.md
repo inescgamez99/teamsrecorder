@@ -36,19 +36,39 @@ pip install -r "$env:USERPROFILE\Documents\TeamsRecorder\requirements.txt"
 
 Si hay errores de dependencias, muéstralos al usuario y ayúdale a resolverlos.
 
-### 3. Configurar el fichero `.env`
+### 3. Iniciar sesión en Claude Code
+
+La app usa `claude -p` (Claude Code CLI) para generar las minutas. Comprueba si ya está disponible:
+
+```powershell
+claude --version
+```
+
+Si el comando no existe, instálalo:
+
+```powershell
+npm install -g @anthropic-ai/claude-code
+```
+
+Luego autentícate (abre el navegador):
+
+```powershell
+claude login
+```
+
+No se necesita ninguna API key en el `.env`. La autenticación de Claude Code es suficiente.
+
+Opcionalmente, crea un `.env` para ajustar el modelo de Whisper:
 
 ```powershell
 Copy-Item "$env:USERPROFILE\Documents\TeamsRecorder\.env.example" "$env:USERPROFILE\Documents\TeamsRecorder\.env"
 ```
 
-Luego pide al usuario que abra `.env` (en su editor o con `notepad "$env:USERPROFILE\Documents\TeamsRecorder\.env"`) y rellene:
+Los únicos campos relevantes son:
+- `WHISPER_MODEL` — Recomendado: `medium`. Opciones: `tiny`, `base`, `small`, `medium`, `large`.
+- `WHISPER_LANGUAGE` — `es` para español, `en` para inglés, o vacío para autodetección.
 
-- `ANTHROPIC_API_KEY` — clave de Anthropic (https://console.anthropic.com). Necesaria para generar minutas.
-- `WHISPER_MODEL` — modelo de transcripción. Recomendado: `medium`. Opciones: `tiny`, `base`, `small`, `medium`, `large`.
-- `WHISPER_LANGUAGE` — idioma principal de las reuniones: `es` para español, `en` para inglés, o déjarlo vacío para autodetección.
-
-Espera a que el usuario confirme que ha guardado el `.env` antes de continuar.
+Espera a que el usuario confirme que `claude login` ha ido bien antes de continuar.
 
 ### 4. Configurar el arranque automático con Windows
 
@@ -57,6 +77,14 @@ Start-Process -FilePath "$env:USERPROFILE\Documents\TeamsRecorder\install_autost
 ```
 
 Esto registra TeamsRecorder en el Programador de tareas de Windows para que arranque automáticamente.
+
+### 4b. Instalar el hook de auto-reinicio tras git pull
+
+```powershell
+Copy-Item "$env:USERPROFILE\Documents\TeamsRecorder\hooks\post-merge" "$env:USERPROFILE\Documents\TeamsRecorder\.git\hooks\post-merge"
+```
+
+Esto hace que cada vez que el usuario ejecute `git pull`, la app se reinicie automáticamente con los cambios nuevos sin tener que hacerlo manualmente.
 
 ### 5. Arrancar la app por primera vez
 
@@ -96,6 +124,12 @@ git -C "$env:USERPROFILE\Documents\TeamsRecorder" pull
 ```
 
 Muestra al usuario qué ficheros han cambiado.
+
+### 2b. Asegurarse de que el hook de auto-reinicio está instalado
+
+```powershell
+Copy-Item "$env:USERPROFILE\Documents\TeamsRecorder\hooks\post-merge" "$env:USERPROFILE\Documents\TeamsRecorder\.git\hooks\post-merge" -Force
+```
 
 ### 3. Actualizar dependencias (por si han cambiado)
 

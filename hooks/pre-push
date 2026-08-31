@@ -1,0 +1,23 @@
+#!/bin/sh
+# TeamsRecorder — pre-push hook (solo para el owner del repo)
+# Genera un resumen ejecutivo de los cambios y notifica al equipo por email.
+# Se ejecuta automaticamente antes de cada git push.
+REPO=$(git rev-parse --show-toplevel)
+
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        # Push de rama nueva: solo el ultimo commit
+        RANGE="$local_sha^..$local_sha"
+    else
+        RANGE="$remote_sha..$local_sha"
+    fi
+
+    COMMITS=$(git log --format="- %s" $RANGE 2>/dev/null)
+
+    if [ -n "$COMMITS" ]; then
+        # Lanzar en background para no bloquear el push
+        echo "$COMMITS" | python "$REPO/hooks/send_update_email.py" &
+    fi
+done
+
+exit 0
