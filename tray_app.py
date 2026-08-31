@@ -66,6 +66,7 @@ class TrayApp:
 
         threading.Thread(target=self._pipeline_loop, daemon=True, name='PipelineWorker').start()
         threading.Thread(target=self._recover_pending, daemon=True, name='PipelineRecovery').start()
+        threading.Thread(target=self._notification_poller, daemon=True, name='NotificationPoller').start()
 
     def start(self):
         import pystray
@@ -168,6 +169,11 @@ class TrayApp:
             self._write_status()
             self._check_pending_notification()
 
+    def _notification_poller(self):
+        while True:
+            time.sleep(5)
+            self._check_pending_notification()
+
     def _check_pending_notification(self):
         notification_file = PROJECT_DIR / '.pending_notification.txt'
         if not notification_file.exists():
@@ -186,8 +192,14 @@ class TrayApp:
 
     def _send_push_notification(self, commits_text: str):
         try:
-            from hooks.send_update_email import send_update_email
-            ok = send_update_email(commits_text)
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'send_update_email',
+                PROJECT_DIR / 'hooks' / 'send_update_email.py',
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            ok = mod.send_update_email(commits_text)
             log.info(f"Push notification email {'enviado' if ok else 'fallido'}")
         except Exception as e:
             log.error(f"Push notification error: {e}")
