@@ -64,12 +64,14 @@ Escribe el cuerpo de un email de notificación con estas reglas:
             timeout=90,
         )
         body = result.stdout.strip()
+        if not body:
+            stderr_preview = result.stderr.strip()[:300] if result.stderr else ''
+            print(f"send_update_email: Claude devolvió stdout vacío (exit {result.returncode})")
+            if stderr_preview:
+                print(f"send_update_email: stderr → {stderr_preview}")
+            return
     except Exception as e:
         print(f"send_update_email: error generando resumen con Claude: {e}")
-        return
-
-    if not body:
-        print("send_update_email: Claude devolvió respuesta vacía, saltando.")
         return
 
     subject = f"TeamsRecorder — Novedades {datetime.now().strftime('%d/%m/%Y')}"
