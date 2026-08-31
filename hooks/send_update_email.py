@@ -94,6 +94,12 @@ def _generate_html(commits_text: str) -> str:
                 env=clean_env(),
             )
             body = result.stdout.strip()
+            # Claude a veces envuelve el HTML en ```html ... ``` — quitarlo
+            if body.startswith('```'):
+                body = body.split('\n', 1)[-1]
+            if body.endswith('```'):
+                body = body.rsplit('```', 1)[0]
+            body = body.strip()
             if body:
                 return body
         except Exception:
