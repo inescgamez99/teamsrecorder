@@ -180,6 +180,12 @@ const T = {
     pipeline_title: 'En curso',
     pipeline_idle: 'Sin actividad',
     btn_edit: 'Editar',
+    edit_notes_hint: 'Edita las notas directamente y guarda. Los cambios se usarán en HTML y email.',
+    notes_saved: 'Notas guardadas',
+    fmt_bold: 'Negrita', fmt_italic: 'Cursiva', fmt_h2: 'Título', fmt_h3: 'Subtítulo', fmt_text: 'Texto normal', fmt_list: 'Lista',
+    fmt_table: 'Tabla', table_need_cursor: 'Pon el cursor dentro de una tabla',
+    tbl_insert: 'Insertar tabla', tbl_addrow: 'Añadir fila', tbl_delrow: 'Eliminar fila',
+    tbl_addcol: 'Añadir columna', tbl_delcol: 'Eliminar columna', tbl_delete: 'Eliminar tabla',
     save: 'Guardar',
     cancel: 'Cancelar',
     settings_saved: 'Ajustes guardados',
@@ -338,6 +344,12 @@ const T = {
     pipeline_title: 'In progress',
     pipeline_idle: 'No activity',
     btn_edit: 'Edit',
+    edit_notes_hint: 'Edit the notes directly and save. Changes are used for HTML and email.',
+    notes_saved: 'Notes saved',
+    fmt_bold: 'Bold', fmt_italic: 'Italic', fmt_h2: 'Heading', fmt_h3: 'Subheading', fmt_text: 'Normal text', fmt_list: 'List',
+    fmt_table: 'Table', table_need_cursor: 'Place the cursor inside a table',
+    tbl_insert: 'Insert table', tbl_addrow: 'Add row', tbl_delrow: 'Delete row',
+    tbl_addcol: 'Add column', tbl_delcol: 'Delete column', tbl_delete: 'Delete table',
     save: 'Save',
     cancel: 'Cancel',
     settings_saved: 'Settings saved',
@@ -672,6 +684,16 @@ function _initMeetingContextMenu() {
   document.addEventListener('contextmenu', e => {
     if (!e.target.closest('.meeting-item')) menu.classList.add('hidden');
   });
+
+// Cerrar el menú de tabla del editor al hacer clic fuera
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('table-menu');
+  if (menu && !menu.classList.contains('hidden')) {
+    if (!e.target.closest || !e.target.closest('.notes-tool-dropdown')) {
+      menu.classList.add('hidden');
+    }
+  }
+});
 }
 
 function _showMeetingContextMenu(e, path, title, el) {
@@ -819,7 +841,7 @@ async function openMeeting(path) {
   document.getElementById('btn-regenerate').addEventListener('click', () => toggleRegenBar());
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
-  document.getElementById('btn-edit-notes').addEventListener('click', () => enterEditMode(path));
+  document.getElementById('btn-edit-notes').addEventListener('click', () => toggleEditNotes(path));
 
 
   requestAnimationFrame(() => {
@@ -2646,28 +2668,220 @@ function togglePipelinePanel() {
   if (tab)   tab.classList.toggle('panel-open', _pipelinePanelOpen);
 }
 
-// ── Editar notas ──────────────────────────────────────────────────────────────
+// ── Editar notas (editor visual WYSIWYG) ──────────────────────────────────────
 
-async function enterEditMode(path) {
-  const notesSection = document.getElementById('section-notes');
-  if (!notesSection) return;
+let _editingNotes = false;
 
-  let mdText = '';
-  try { mdText = await pywebview.api.get_minutes_text(path); } catch (_) {}
+async function toggleEditNotes(path) {
+  if (_editingNotes) return;
+  const sec = document.getElementById('section-notes');
+  if (!sec) return;
+  document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-notes')?.classList.add('active');
+  document.getElementById('section-notes')?.classList.remove('hidden');
+  document.getElementById('section-actions')?.classList.add('hidden');
 
-  notesSection.innerHTML = `
-    <textarea class="notes-edit-area" id="notes-edit-textarea">${escHtml(mdText)}</textarea>
-    <div class="notes-edit-actions">
-      <button class="btn btn-primary btn-sm" id="btn-save-notes">${t('save')}</button>
-      <button class="btn btn-ghost btn-sm" id="btn-cancel-edit">${t('cancel')}</button>
-    </div>`;
-
-  document.getElementById('btn-cancel-edit').addEventListener('click', () => openMeeting(path));
-  document.getElementById('btn-save-notes').addEventListener('click', async () => {
-    const content = document.getElementById('notes-edit-textarea').value;
-    try {
-      await pywebview.api.save_minutes_text(path, content);
-    } catch (_) {}
-    openMeeting(path);
+  let html = '';
+  try { html = await pywebview.api.get_minutes_html(path); } catch (_) {}
+  _editingNotes = true;
+  sec.innerHTML = `
+    <div class="notes-edit-toolbar">
+      <div class="notes-edit-tools">
+        <button class="notes-tool" data-cmd="bold" title="${t('fmt_bold')}"><b>B</b></button>
+        <button class="notes-tool" data-cmd="italic" title="${t('fmt_italic')}"><i>I</i></button>
+        <button class="notes-tool" data-block="H2" title="${t('fmt_h2')}">H2</button>
+        <button class="notes-tool" data-block="H3" title="${t('fmt_h3')}">H3</button>
+        <button class="notes-tool" data-block="P" title="${t('fmt_text')}">¶</button>
+        <button class="notes-tool" data-cmd="insertUnorderedList" title="${t('fmt_list')}">•</button>
+        <span class="notes-tool-dropdown">
+          <button class="notes-tool" data-action="tablemenu" title="${t('fmt_table')}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 14h18M9 4v16M15 4v16"/></svg> ▾</button>
+          <div class="table-menu hidden" id="table-menu">
+            <button data-tbl="insert">${t('tbl_insert')}</button>
+            <button data-tbl="addrow">${t('tbl_addrow')}</button>
+            <button data-tbl="delrow">${t('tbl_delrow')}</button>
+            <button data-tbl="addcol">${t('tbl_addcol')}</button>
+            <button data-tbl="delcol">${t('tbl_delcol')}</button>
+            <button data-tbl="deltable" class="table-menu-danger">${t('tbl_delete')}</button>
+          </div>
+        </span>
+      </div>
+      <div class="notes-edit-btns">
+        <button class="btn btn-primary btn-sm" id="btn-notes-save">${t('save_btn')}</button>
+        <button class="btn btn-ghost btn-sm" id="btn-notes-cancel">${t('cancel')}</button>
+      </div>
+    </div>
+    <div class="notes-edit-hint">${t('edit_notes_hint')}</div>
+    <div class="notes-edit-area minutes-content" id="notes-edit-area" contenteditable="true">${html ? sanitizeHtml(html) : ''}</div>`;
+  const area = document.getElementById('notes-edit-area');
+  if (area) area.focus();
+  const _tb = sec.querySelector('.notes-edit-toolbar');
+  const _hdr = document.querySelector('.detail-header');
+  const _tabs = document.querySelector('.detail-tabs');
+  if (_tb) _tb.style.top = ((_hdr?.offsetHeight || 0) + (_tabs?.offsetHeight || 0)) + 'px';
+  sec.querySelectorAll('.notes-tool').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.preventDefault());
+    btn.addEventListener('click', () => {
+      if (btn.dataset.action === 'tablemenu') {
+        document.getElementById('table-menu')?.classList.toggle('hidden');
+        return;
+      }
+      area.focus();
+      if (btn.dataset.cmd) document.execCommand(btn.dataset.cmd, false, null);
+      else if (btn.dataset.block) document.execCommand('formatBlock', false, btn.dataset.block);
+    });
   });
+  sec.querySelectorAll('#table-menu button').forEach(mi => {
+    mi.addEventListener('mousedown', e => e.preventDefault());
+    mi.addEventListener('click', () => {
+      _tableOp(area, mi.dataset.tbl);
+      document.getElementById('table-menu')?.classList.add('hidden');
+    });
+  });
+  document.getElementById('btn-notes-save').onclick = async () => {
+    const md = htmlToMarkdown(area);
+    let ok = false;
+    try { ok = await pywebview.api.save_minutes_notes(path, md); } catch (_) {}
+    _editingNotes = false;
+    if (ok) showToast(t('notes_saved'));
+    await _reRenderNotes(path);
+  };
+  document.getElementById('btn-notes-cancel').onclick = async () => {
+    _editingNotes = false;
+    await _reRenderNotes(path);
+  };
+}
+
+function htmlToMarkdown(root) {
+  function inline(node) {
+    let out = '';
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) { out += n.textContent; return; }
+      if (n.nodeType !== 1) return;
+      const tag = n.tagName.toLowerCase();
+      const inner = inline(n);
+      if (tag === 'strong' || tag === 'b') out += `**${inner}**`;
+      else if (tag === 'em' || tag === 'i') out += `*${inner}*`;
+      else if (tag === 'code') out += '`' + inner + '`';
+      else if (tag === 'a') out += `[${inner}](${n.getAttribute('href') || ''})`;
+      else if (tag === 'br') out += '\n';
+      else out += inner;
+    });
+    return out;
+  }
+  function tableToMarkdown(table) {
+    const trs = [...table.querySelectorAll('tr')];
+    const out = [];
+    trs.forEach((tr, ri) => {
+      const cells = [...tr.children].map(c => (inline(c).trim().replace(/\|/g, '\\|')) || ' ');
+      out.push('| ' + cells.join(' | ') + ' |');
+      if (ri === 0) out.push('| ' + cells.map(() => '---').join(' | ') + ' |');
+    });
+    return out;
+  }
+  const lines = [];
+  function block(node) {
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) { const txt = n.textContent.trim(); if (txt) lines.push(txt, ''); return; }
+      if (n.nodeType !== 1) return;
+      const tag = n.tagName.toLowerCase();
+      if (tag === 'h1') lines.push('# ' + inline(n).trim(), '');
+      else if (tag === 'h2') lines.push('## ' + inline(n).trim(), '');
+      else if (tag === 'h3') lines.push('### ' + inline(n).trim(), '');
+      else if (tag === 'p' || tag === 'div') { const txt = inline(n).trim(); if (txt) lines.push(txt, ''); else block(n); }
+      else if (tag === 'ul') { n.querySelectorAll(':scope > li').forEach(li => lines.push('- ' + inline(li).trim())); lines.push(''); }
+      else if (tag === 'ol') { let i = 1; n.querySelectorAll(':scope > li').forEach(li => lines.push((i++) + '. ' + inline(li).trim())); lines.push(''); }
+      else if (tag === 'table') { tableToMarkdown(n).forEach(l => lines.push(l)); lines.push(''); }
+      else if (tag === 'blockquote') { lines.push('> ' + inline(n).trim(), ''); }
+      else if (tag === 'br') { lines.push(''); }
+      else { const txt = inline(n).trim(); if (txt) lines.push(txt, ''); }
+    });
+  }
+  block(root);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+function _placeCaret(node) {
+  try {
+    const sel = window.getSelection();
+    const r = document.createRange();
+    r.setStart(node, 0); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+  } catch (_) {}
+}
+
+function _tableCtx(area) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return null;
+  let node = sel.anchorNode, cell = null, tr = null, table = null;
+  while (node && node !== area) {
+    if (node.nodeType === 1) {
+      const tag = node.tagName;
+      if (!cell && (tag === 'TD' || tag === 'TH')) cell = node;
+      if (!tr && tag === 'TR') tr = node;
+      if (tag === 'TABLE') { table = node; break; }
+    }
+    node = node.parentNode;
+  }
+  if (!table) return null;
+  if (!tr && cell) tr = cell.parentNode;
+  const cellIndex = (cell && tr) ? [...tr.children].indexOf(cell) : 0;
+  return { table, tr, cell, cellIndex };
+}
+
+function _insertTable(area) {
+  area.focus();
+  const cols = 3, rows = 2;
+  let html = '<table>';
+  for (let r = 0; r < rows; r++) {
+    html += '<tr>';
+    for (let c = 0; c < cols; c++) {
+      const tag = r === 0 ? 'th' : 'td';
+      html += `<${tag}>${r === 0 ? 'Columna ' + (c + 1) : '&nbsp;'}</${tag}>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table><p><br></p>';
+  document.execCommand('insertHTML', false, html);
+}
+
+function _tableOp(area, op) {
+  area.focus();
+  if (op === 'insert') { _insertTable(area); return; }
+  const ctx = _tableCtx(area);
+  if (!ctx) { showToast(t('table_need_cursor')); return; }
+  const { table, tr, cellIndex } = ctx;
+  const rows = [...table.querySelectorAll('tr')];
+  if (op === 'addrow') {
+    const cols = (tr || rows[0]).children.length || 1;
+    const nr = document.createElement('tr');
+    for (let i = 0; i < cols; i++) { const td = document.createElement('td'); td.innerHTML = '<br>'; nr.appendChild(td); }
+    (tr || rows[rows.length - 1]).after(nr);
+    _placeCaret(nr.firstChild);
+  } else if (op === 'delrow') {
+    if (rows.length <= 1) { table.remove(); return; }
+    (tr || rows[rows.length - 1]).remove();
+  } else if (op === 'addcol') {
+    rows.forEach(r => {
+      const isHead = !!r.querySelector('th') && !r.querySelector('td');
+      const cell = document.createElement(isHead ? 'th' : 'td');
+      cell.innerHTML = isHead ? 'Columna' : '<br>';
+      const ref = r.children[cellIndex];
+      if (ref && ref.nextSibling) r.insertBefore(cell, ref.nextSibling);
+      else r.appendChild(cell);
+    });
+  } else if (op === 'delcol') {
+    const colCount = rows[0] ? rows[0].children.length : 0;
+    if (colCount <= 1) { table.remove(); return; }
+    rows.forEach(r => { const c = r.children[cellIndex]; if (c) c.remove(); });
+  } else if (op === 'deltable') {
+    table.remove();
+  }
+}
+
+async function _reRenderNotes(path) {
+  const sec = document.getElementById('section-notes');
+  if (!sec) return;
+  let html = '';
+  try { html = await pywebview.api.get_minutes_html(path); } catch (_) {}
+  sec.innerHTML = `<div class="minutes-content">${html ? sanitizeHtml(html) : `<em>${t('no_minutes')}</em>`}</div>`;
 }

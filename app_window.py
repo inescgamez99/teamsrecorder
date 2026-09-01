@@ -787,6 +787,34 @@ class AppAPI:
             log.error(f"save_minutes_text: {e}")
             return False
 
+    def save_minutes_notes(self, path: str, notes_md: str) -> bool:
+        """Guarda notas editadas desde el editor visual (preserva la sección de Acciones)."""
+        p = Path(path)
+        try:
+            current = ''
+            try:
+                current = p.read_text(encoding='utf-8')
+            except Exception:
+                pass
+            m = re.search(
+                r'\n(##\s+(?:Acciones\s+Pendientes|Pending\s+Actions)\b.*?)(?=\n##\s|\Z)',
+                current, flags=re.IGNORECASE | re.DOTALL,
+            )
+            actions_section = m.group(1).rstrip() if m else ''
+            new_md = notes_md.rstrip() + (('\n\n' + actions_section + '\n') if actions_section else '\n')
+            p.write_text(new_md, encoding='utf-8')
+            try:
+                from html_exporter import export_to_html
+                meta = _parse_stem(p.stem)
+                export_to_html(p, meta['title'], open_browser=False)
+            except Exception as e:
+                log.warning(f"save_minutes_notes html: {e}")
+            log.info(f"save_minutes_notes: {p.stem}")
+            return True
+        except Exception as e:
+            log.error(f"save_minutes_notes: {e}")
+            return False
+
     def get_settings(self) -> dict:
         try:
             p = PROJECT_DIR / 'settings.json'
