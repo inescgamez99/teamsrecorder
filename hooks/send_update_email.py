@@ -13,7 +13,13 @@ sys.path.insert(0, str(PROJECT_DIR))
 
 from config import CLAUDE_BIN as _CLAUDE_BIN, clean_env
 
-_PULL_CMD = r'git -C "$env:USERPROFILE\Documents\TeamsRecorder" pull'
+# El email va a equipos que han clonado el repo en rutas distintas, asi que no
+# puede llevar un comando con la ruta fija: a quien no clono en Documents le
+# fallaba el pull. La skill /teamsrecorder localiza el clon y actualiza.
+_UPDATE_CMD = '/teamsrecorder'
+_UPDATE_HTML = f"""<p>Para actualizar, abre Claude Code y ejecuta:</p>
+<pre style="background:#f4f4f4;padding:8px;border-radius:4px;font-family:monospace">{_UPDATE_CMD}</pre>
+<p>La app se reiniciará automáticamente.</p>"""
 
 _PROMPT_TEMPLATE = """Eres el asistente de comunicación de TeamsRecorder, una app de Windows que graba reuniones de Teams y genera minutas automáticas con IA.
 
@@ -29,16 +35,10 @@ Escribe el cuerpo de un email de notificación en HTML con estas reglas:
 - Los elementos de cada categoría van en una lista <ul> con <li> por item
 - Termina siempre con este bloque HTML exacto, sin modificarlo:
 
-<p>Para actualizar, abre PowerShell y ejecuta:</p>
-<pre style="background:#f4f4f4;padding:8px;border-radius:4px;font-family:monospace">{pull_cmd}</pre>
-<p>La app se reiniciará automáticamente.</p>
+{update_html}
 
 - Responde SOLO con el HTML del cuerpo del email (sin <html>, sin <head>, sin <body>), en español, sin asunto ni firma
 """
-
-_FOOTER_HTML = f"""<p>Para actualizar, abre PowerShell y ejecuta:</p>
-<pre style="background:#f4f4f4;padding:8px;border-radius:4px;font-family:monospace">{_PULL_CMD}</pre>
-<p>La app se reiniciará automáticamente.</p>"""
 
 _EMAIL_WRAPPER = """\
 <div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1a1a1a;max-width:600px;line-height:1.6">
@@ -82,7 +82,7 @@ def send_update_email(commits_text: str) -> bool:
 def _generate_html(commits_text: str) -> str:
     """Intenta resumen IA en HTML; si falla, devuelve HTML manual."""
     if _CLAUDE_BIN:
-        prompt = _PROMPT_TEMPLATE.format(commits=commits_text, pull_cmd=_PULL_CMD)
+        prompt = _PROMPT_TEMPLATE.format(commits=commits_text, update_html=_UPDATE_HTML)
         try:
             result = subprocess.run(
                 [_CLAUDE_BIN, '-p'],
@@ -113,5 +113,5 @@ def _generate_html(commits_text: str) -> str:
         f"<p>TeamsRecorder ha recibido una nueva actualización:</p>"
         f"<p><strong><u>Cambios</u></strong></p>"
         f"<ul>{items}</ul>"
-        f"{_FOOTER_HTML}"
+        f"{_UPDATE_HTML}"
     )
