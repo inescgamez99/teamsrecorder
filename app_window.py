@@ -967,7 +967,13 @@ class AppAPI:
         except Exception as e:
             log.warning(f"open_minutes_in_claude_app clipboard error: {e}")
 
-        webbrowser.open('https://claude.ai/new')
+        try:
+            if os.name == 'nt':
+                os.startfile('claude:')
+            else:
+                webbrowser.open('https://claude.ai/new')
+        except Exception:
+            webbrowser.open('https://claude.ai/new')
         return True
 
     def open_html(self, path: str) -> bool:
