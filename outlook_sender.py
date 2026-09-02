@@ -324,3 +324,139 @@ def get_my_email() -> str | None:
     except Exception:
         pass
     return None
+
+
+def _esc(text) -> str:
+    """Escapa caracteres HTML para insertar texto plano en el cuerpo del email."""
+    import html
+    return html.escape(str(text if text is not None else ''))
+
+
+# ── Email de acciones (tabla) ─────────────────────────────────────────────────
+
+def send_actions_email(
+    title: str,
+    date_str: str,
+    actions: list[dict],
+    participants: list[dict],
+    language: str = 'es',
+) -> bool:
+    """Abre un borrador en Outlook con las acciones en una tabla (título, owner, fecha, deadline)."""
+    try:
+        outlook = _get_outlook()
+        mail = outlook.CreateItem(0)
+        if language == 'en':
+            mail.Subject = f"Action items: {title}" + (f" — {date_str}" if date_str else '')
+        else:
+            mail.Subject = f"Acciones de reunión: {title}" + (f" — {date_str}" if date_str else '')
+        for p in participants:
+            mail.Recipients.Add(p.get('email') or p.get('name', ''))
+        mail.HTMLBody = _build_actions_email_html(title, date_str, actions, language)
+        mail.Display()
+        log.info(f"Borrador de acciones creado en Outlook ({len(actions)} acciones)")
+        return True
+    except Exception as e:
+        log.error(f"Error creando email de acciones en Outlook: {e}")
+        return False
+
+
+def _build_actions_email_html(title: str, date_str: str, actions: list[dict], language: str = 'es') -> str:
+    import json as _json
+
+    user_name = ''
+    try:
+        settings_path = Path(__file__).parent / 'settings.json'
+        if settings_path.exists():
+            user_name = _json.loads(settings_path.read_text(encoding='utf-8')).get('user_name', '')
+    except Exception:
+        pass
+
+    if language == 'en':
+        saludo  = "Hi All,"
+        intro   = f"Please find below the action items from our meeting <strong>{_esc(title)}</strong>{(' on ' + _esc(date_str)) if date_str else ''}."
+        closing = f"Best regards,<br><strong>{_esc(user_name)}</strong>" if user_name else "Best regards,"
+        heads   = ['Action', 'Owner', 'Date', 'Deadline']
+        empty   = 'No action items were recorded.'
+    else:
+        saludo  = "Hola a todos,"
+        intro   = f"Os comparto las acciones acordadas en nuestra reunión <strong>{_esc(title)}</strong>{(' del ' + _esc(date_str)) if date_str else ''}."
+        closing = f"Un saludo,<br><strong>{_esc(user_name)}</strong>" if user_name else "Un saludo,"
+        heads   = ['Acción', 'Owner', 'Fecha', 'Deadline']
+        empty   = 'No se registraron acciones.'
+
+    th = ''.join(
+        f'<th style="text-align:left;padding:8px 12px;background:#f0f0f0;border:1px solid #ccc;font-weight:bold">{_esc(h)}</th>'
+        for h in heads
+    )
+    rows_html = ''
+    for idx, a in enumerate(actions):
+        bg = '#fafafa' if idx % 2 else '#ffffff'
+        cells = [
+            a.get('title', '') or '',
+            a.get('assignee', '') or '—',
+            date_str or '—',
+            a.get('deadline', '') or '—',
+        ]
+        tds = ''.join(
+            f'<td style="padding:7px 12px;border:1px solid #ddd;background:{bg}">{_esc(c)}</td>'
+            for c in cells
+        )
+        rows_html += f'<tr>{tds}</tr>\n'
+
+    if actions:
+        table = (
+            '<table style="border-collapse:collapse;width:100%;font-size:13px">'
+            f'<thead><tr>{th}</tr></thead><tbody>{rows_html}</tbody></table>'
+        )
+    else:
+        table = f'<p>{empty}</p>'
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1a1a1a;max-width:720px;line-height:1.5">
+<p style="margin:0 0 12px">{saludo}</p>
+<p style="margin:0 0 20px">{intro}</p>
+<p style="margin:0 0 24px">{closing}</p>
+<hr style="border:none;border-top:1px solid #ddd;margin:0 0 16px">
+{table}
+</body></html>"""
+
+
+# ── Email de transcripción (fichero adjunto) ──────────────────────────────────
+
+def send_transcript_email(
+    title: str,
+    date_str: str,
+    transcript_path: Path,
+    participants: list[dict],
+    language: str = 'es',
+) -> bool:
+    """Abre un borrador en Outlook con la transcripción como fichero adjunto (no en el cuerpo)."""
+    try:
+        tp = Path(transcript_path)
+        if not tp.exists():
+            log.error(f"send_transcript_email: no existe {tp}")
+            return False
+        outlook = _get_outlook()
+        mail = outlook.CreateItem(0)
+        if language == 'en':
+            mail.Subject = f"Transcript: {title}" + (f" — {date_str}" if date_str else '')
+            body = (f"Hi All,<br><br>Please find attached the full transcript of our meeting "
+                    f"<strong>{_esc(title)}</strong>{(' on ' + _esc(date_str)) if date_str else ''}.<br><br>Best regards,")
+        else:
+            mail.Subject = f"Transcripción: {title}" + (f" — {date_str}" if date_str else '')
+            body = (f"Hola a todos,<br><br>Adjunto la transcripción completa de nuestra reunión "
+                    f"<strong>{_esc(title)}</strong>{(' del ' + _esc(date_str)) if date_str else ''}.<br><br>Un saludo,")
+        for p in participants:
+            mail.Recipients.Add(p.get('email') or p.get('name', ''))
+        mail.HTMLBody = (
+            '<body style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.5">'
+            f'<p>{body}</p></body>'
+        )
+        mail.Attachments.Add(str(tp.resolve()))
+        mail.Display()
+        log.info("Borrador de transcripción creado en Outlook con adjunto")
+        return True
+    except Exception as e:
+        log.error(f"Error creando email de transcripción en Outlook: {e}")
+        return False

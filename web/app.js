@@ -43,8 +43,13 @@ const T = {
     pin: 'Fijar', unpin: 'Quitar de fijadas', pinned: 'Fijadas',
     sticky_add: 'Añadir post-it', sticky_min: 'Minimizar', sticky_del: 'Eliminar', sticky_ph: 'Escribe aquí...',
     copy_note: 'Copiar nota', copied: 'Nota copiada al portapapeles', copy_empty: 'No hay nota que copiar', copy_failed: 'No se pudo copiar',
-    more_actions: 'Más acciones', export_html: 'Exportar a HTML', open_in_claude: 'Abrir en Claude', send_email: 'Enviar por email',
+    more_actions: 'Más acciones', export_html: 'Exportar a HTML', open_in_claude: 'Preguntar a Claude', send_email: 'Enviar por email',
     tab_transcript: 'Transcripción', open_transcript_loc: 'Abrir ubicación del archivo', no_transcript_file: 'No hay transcripción disponible para esta reunión.', open_transcript_failed: 'No se pudo abrir la ubicación del archivo.',
+    copy_actions: 'Copiar acciones', copy_transcript: 'Copiar transcripción', copy_no_actions: 'No hay acciones que copiar', copy_no_transcript: 'No hay transcripción que copiar',
+    email_actions: 'Enviar acciones por email', email_transcript: 'Enviar transcripción por email', email_no_actions: 'No hay acciones que enviar', email_no_transcript: 'No hay transcripción que adjuntar',
+    edit_transcript: 'Corregir transcripción', edit_transcript_hint: 'Corrige errores de la transcripción. Se guardará en el fichero.', transcript_saved: 'Transcripción guardada', transcript_save_failed: 'No se pudo guardar la transcripción',
+    edit_actions: 'Editar acciones', edit_actions_done: 'Listo',
+    col_action: 'Acción', col_owner: 'Owner', col_date: 'Fecha', col_deadline: 'Deadline',
     trash_desc: 'Las reuniones eliminadas se guardan aquí. Puedes recuperarlas o borrarlas definitivamente.',
     trash_empty: 'La papelera está vacía.',
     trash_recover: 'Recuperar', trash_delete_forever: 'Borrar definitivamente',
@@ -224,8 +229,13 @@ const T = {
     pin: 'Pin', unpin: 'Unpin', pinned: 'Pinned',
     sticky_add: 'Add sticky note', sticky_min: 'Minimize', sticky_del: 'Delete', sticky_ph: 'Write here...',
     copy_note: 'Copy note', copied: 'Note copied to clipboard', copy_empty: 'Nothing to copy', copy_failed: 'Could not copy',
-    more_actions: 'More actions', export_html: 'Export to HTML', open_in_claude: 'Open in Claude', send_email: 'Send by email',
+    more_actions: 'More actions', export_html: 'Export to HTML', open_in_claude: 'Ask Claude', send_email: 'Send by email',
     tab_transcript: 'Transcript', open_transcript_loc: 'Open file location', no_transcript_file: 'No transcript available for this meeting.', open_transcript_failed: 'Could not open the file location.',
+    copy_actions: 'Copy actions', copy_transcript: 'Copy transcript', copy_no_actions: 'No actions to copy', copy_no_transcript: 'No transcript to copy',
+    email_actions: 'Email the actions', email_transcript: 'Email the transcript', email_no_actions: 'No actions to send', email_no_transcript: 'No transcript to attach',
+    edit_transcript: 'Fix transcript', edit_transcript_hint: 'Fix transcription errors. Changes are saved to the file.', transcript_saved: 'Transcript saved', transcript_save_failed: 'Could not save the transcript',
+    edit_actions: 'Edit actions', edit_actions_done: 'Done',
+    col_action: 'Action', col_owner: 'Owner', col_date: 'Date', col_deadline: 'Deadline',
     trash_desc: 'Deleted meetings are kept here. You can recover them or delete them permanently.',
     trash_empty: 'Trash is empty.',
     trash_recover: 'Recover', trash_delete_forever: 'Delete permanently',
@@ -888,6 +898,204 @@ function copyNote() {
   }
 }
 
+// ── Acciones contextuales por pestaña ─────────────────────────────────────────
+let _activeDetailTab = 'notes';
+
+// Ajusta la barra de acciones según la pestaña activa.
+// Copiar, Email, Post-it y Preguntar a Claude están en todas y aplican a esa
+// pestaña. Editar en Notas/Transcripción (en Acciones se editan en línea).
+// Regenerar minutas y "Notas en HTML" solo en Notas.
+function _updateActionBar(which) {
+  const editBtn = document.getElementById('btn-edit-notes');
+  const regen   = document.getElementById('btn-regenerate');
+  const html    = document.getElementById('btn-html');
+  const copyBtn = document.getElementById('btn-copy');
+  const mailBtn = document.getElementById('btn-email');
+  if (editBtn) {
+    editBtn.style.display = '';
+    editBtn.title = which === 'transcript' ? t('edit_transcript')
+                  : which === 'actions'    ? t('edit_actions')
+                  : t('btn_edit');
+    editBtn.classList.toggle('action-icon-btn--active', which === 'actions' && _editingActions);
+  }
+  if (regen) regen.style.display = which === 'notes' ? '' : 'none';
+  if (html)  html.style.display  = which === 'notes' ? '' : 'none';
+  if (copyBtn) copyBtn.title = which === 'actions' ? t('copy_actions')
+                             : which === 'transcript' ? t('copy_transcript') : t('copy_note');
+  if (mailBtn) mailBtn.title = which === 'actions' ? t('email_actions')
+                             : which === 'transcript' ? t('email_transcript') : t('send_email');
+}
+
+// ── Copiar según pestaña ──────────────────────────────────────────────────────
+function copyActive() {
+  if (_activeDetailTab === 'actions')    return copyActions();
+  if (_activeDetailTab === 'transcript') return copyTranscript();
+  return copyNote();
+}
+
+async function copyActions() {
+  let actions = [];
+  try { actions = (await pywebview.api.get_actions(currentPath)) || []; } catch (_) {}
+  if (!actions.length) { showToast(t('copy_no_actions')); return; }
+  const mtg  = allMeetings.find(m => m.path === currentPath) || {};
+  const date = mtg.date || '';
+  const heads = [t('col_action'), t('col_owner'), t('col_date'), t('col_deadline')];
+  const rows  = actions.map(a => [a.title || '', a.assignee || '—', date || '—', a.deadline || '—']);
+  const th  = heads.map(h => `<th style="text-align:left;padding:6px 12px;border:1px solid #ccc;background:#f0f0f0">${escHtml(h)}</th>`).join('');
+  const trs = rows.map(r => `<tr>${r.map(c => `<td style="padding:6px 12px;border:1px solid #ddd">${escHtml(c)}</td>`).join('')}</tr>`).join('');
+  const rich = `<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:13px"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  const text = [heads.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
+  _copyRich(rich, text);
+}
+
+function copyTranscript() {
+  const body = document.getElementById('transcript-body');
+  const text = body ? body.innerText.trim() : '';
+  if (!text) { showToast(t('copy_no_transcript')); return; }
+  _copyRich(null, text);
+}
+
+// Copia html+texto (o solo texto si html es null) con cascada de fallbacks.
+function _copyRich(html, text) {
+  const done = () => showToast(t('copied'));
+  const fail = () => showToast(t('copy_failed'));
+  if (navigator.clipboard && window.ClipboardItem && html) {
+    try {
+      const item = new ClipboardItem({
+        'text/html':  new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      });
+      navigator.clipboard.write([item]).then(done, () => _copyPlain(text, done, fail));
+      return;
+    } catch (_) {}
+  }
+  _copyPlain(text, done, fail);
+}
+
+function _copyPlain(text, done, fail) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => _copyExec(text, done, fail));
+  } else { _copyExec(text, done, fail); }
+}
+
+function _copyExec(text, done, fail) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) {}
+  ta.remove();
+  ok ? done() : fail();
+}
+
+// ── Email según pestaña ───────────────────────────────────────────────────────
+async function sendEmailActive(path) {
+  if (_activeDetailTab === 'actions') {
+    showToast(t('toast_outlook'));
+    const ok = await pywebview.api.send_actions_email(path);
+    if (!ok) showToast(t('email_no_actions'));
+    return;
+  }
+  if (_activeDetailTab === 'transcript') {
+    showToast(t('toast_outlook'));
+    const ok = await pywebview.api.send_transcript_email(path);
+    if (!ok) showToast(t('email_no_transcript'));
+    return;
+  }
+  return sendEmail(path);
+}
+
+// ── Editar según pestaña ──────────────────────────────────────────────────────
+function editActive(path) {
+  if (_activeDetailTab === 'transcript') return toggleEditTranscript(path);
+  if (_activeDetailTab === 'actions')    return toggleEditActions(path);
+  return toggleEditNotes(path);
+}
+
+// ── Editar acciones en línea (título, responsable, deadline) ──────────────────
+let _editingActions = false;
+
+async function toggleEditActions(path) {
+  _editingActions = !_editingActions;
+  const editBtn = document.getElementById('btn-edit-notes');
+  if (editBtn) editBtn.classList.toggle('action-icon-btn--active', _editingActions);
+  const actionsDiv = document.getElementById('meeting-actions');
+  if (!actionsDiv) return;
+  let actions = [];
+  try { actions = (await pywebview.api.get_actions(path)) || []; } catch (_) {}
+  if (!actions.length) {
+    actionsDiv.innerHTML = `<div style="color:var(--muted);font-size:13px;margin-bottom:10px">${t('no_actions')}</div>`;
+    return;
+  }
+  const md = (allMeetings.find(m => m.path === path) || {}).date || '';
+  renderActionCards(actions, path, actionsDiv, md, _editingActions);
+  if (!_editingActions) _prefillWorkingDirs(actions, path);
+}
+
+// Sale del modo edición de acciones y restaura las tarjetas normales.
+async function _exitActionsEdit(path) {
+  if (!_editingActions) return;
+  _editingActions = false;
+  const editBtn = document.getElementById('btn-edit-notes');
+  if (editBtn) editBtn.classList.remove('action-icon-btn--active');
+  const actionsDiv = document.getElementById('meeting-actions');
+  if (!actionsDiv) return;
+  let actions = [];
+  try { actions = (await pywebview.api.get_actions(path)) || []; } catch (_) {}
+  const md = (allMeetings.find(m => m.path === path) || {}).date || '';
+  if (actions.length) {
+    renderActionCards(actions, path, actionsDiv, md, false);
+    _prefillWorkingDirs(actions, path);
+  }
+}
+
+// ── Corregir la transcripción (editable in situ) ──────────────────────────────
+let _editingTranscript = false;
+
+async function toggleEditTranscript(path) {
+  if (_editingTranscript) return;
+  const body   = document.getElementById('transcript-body');
+  const header = document.querySelector('#section-transcript .transcript-header');
+  if (!body || !header) return;
+  if (!_transcriptPath) { await _loadTranscript(path); }
+  if (!_transcriptPath) { showToast(t('no_transcript_file')); return; }
+  _editingTranscript = true;
+  const original      = body.innerText;
+  const oldHeaderHtml = header.innerHTML;
+  body.setAttribute('contenteditable', 'true');
+  body.classList.add('transcript-editing');
+  body.focus();
+  header.innerHTML = `
+    <div class="section-label">${t('tab_transcript')}</div>
+    <div class="transcript-edit-hint">${t('edit_transcript_hint')}</div>
+    <div class="transcript-edit-btns">
+      <button class="btn btn-primary btn-sm" id="btn-transcript-save">${t('save_btn')}</button>
+      <button class="btn btn-ghost btn-sm" id="btn-transcript-cancel">${t('cancel')}</button>
+    </div>`;
+  const finish = (restoreText) => {
+    body.removeAttribute('contenteditable');
+    body.classList.remove('transcript-editing');
+    _editingTranscript = false;
+    if (restoreText != null) body.textContent = restoreText;
+    header.innerHTML = oldHeaderHtml;
+    const ob = document.getElementById('btn-open-transcript');
+    if (ob) {
+      ob.style.display = _transcriptPath ? '' : 'none';
+      ob.addEventListener('click', () => openTranscriptLocation());
+    }
+  };
+  document.getElementById('btn-transcript-cancel').onclick = () => finish(original);
+  document.getElementById('btn-transcript-save').onclick = async () => {
+    const text = body.innerText;
+    let ok = false;
+    try { ok = await pywebview.api.save_transcript(path, text); } catch (_) {}
+    showToast(ok ? t('transcript_saved') : t('transcript_save_failed'));
+    finish(null);
+  };
+}
+
 // ── Sticky notes (post-its) ──────────────────────────────────────────────────
 let _stickies = [];
 let _stickySaveTimer = null;
@@ -1076,18 +1284,25 @@ async function openMeeting(path) {
             </span>
           </div>
         </div>
-        <div class="detail-actions-bar">
-          <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="action-icon-btn" id="btn-copy" title="${t('copy_note')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-          <button class="action-icon-btn action-icon-btn--primary" id="btn-email" title="${t('send_email')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
-          <div class="action-more-wrap">
-            <button class="action-icon-btn" id="btn-more" title="${t('more_actions')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
-            <div class="action-menu hidden" id="action-menu">
-              <button class="action-menu-item" id="btn-sticky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-6a1 1 0 0 1 1-1h6"/></svg><span>${t('sticky_add')}</span></button>
-              <button class="action-menu-item" id="btn-regenerate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg><span>${t('btn_regenerate')}</span></button>
-              <button class="action-menu-item" id="btn-html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>${t('export_html')}</span></button>
-              <button class="action-menu-item" id="btn-claude"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 8h8M8 16h5"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg><span>${t('open_in_claude')}</span></button>
-            </div>
+      </div>
+      <div class="detail-tabs">
+        <button class="detail-tab active" id="tab-notes" data-tab="notes">${t('tab_notes')}</button>
+        <button class="detail-tab" id="tab-actions" data-tab="actions">
+          ${t('tab_actions')} ${pendingCount > 0 ? `<span class="tab-badge">${pendingCount}</span>` : ''}
+        </button>
+        <button class="detail-tab" id="tab-transcript" data-tab="transcript">${t('tab_transcript')}</button>
+      </div>
+      <div class="detail-actions-bar" id="detail-actions-bar">
+        <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <button class="action-icon-btn" id="btn-copy" title="${t('copy_note')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        <button class="action-icon-btn action-icon-btn--primary" id="btn-email" title="${t('send_email')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+        <div class="action-more-wrap">
+          <button class="action-icon-btn" id="btn-more" title="${t('more_actions')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
+          <div class="action-menu hidden" id="action-menu">
+            <button class="action-menu-item" id="btn-sticky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-6a1 1 0 0 1 1-1h6"/></svg><span>${t('sticky_add')}</span></button>
+            <button class="action-menu-item" id="btn-regenerate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg><span>${t('btn_regenerate')}</span></button>
+            <button class="action-menu-item" id="btn-html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>${t('export_html')}</span></button>
+            <button class="action-menu-item" id="btn-claude"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 8h8M8 16h5"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg><span>${t('open_in_claude')}</span></button>
           </div>
         </div>
       </div>
@@ -1097,13 +1312,6 @@ async function openMeeting(path) {
           <button class="btn btn-primary btn-sm" id="btn-regen-confirm">${t('regen_confirm')}</button>
           <button class="btn btn-ghost btn-sm" id="btn-regen-cancel">${t('regen_cancel')}</button>
         </div>
-      </div>
-      <div class="detail-tabs">
-        <button class="detail-tab active" id="tab-notes" data-tab="notes">${t('tab_notes')}</button>
-        <button class="detail-tab" id="tab-actions" data-tab="actions">
-          ${t('tab_actions')} ${pendingCount > 0 ? `<span class="tab-badge">${pendingCount}</span>` : ''}
-        </button>
-        <button class="detail-tab" id="tab-transcript" data-tab="transcript">${t('tab_transcript')}</button>
       </div>
       <div class="minutes-section" id="section-notes">
         <div class="minutes-content">${minutesHtml ? sanitizeHtml(minutesHtml) : `<em>${t('no_minutes')}</em>`}</div>
@@ -1126,15 +1334,15 @@ async function openMeeting(path) {
       </div>
     </div>`;
 
-  document.getElementById('btn-email').addEventListener('click', () => sendEmail(path));
+  document.getElementById('btn-email').addEventListener('click', () => sendEmailActive(path));
   document.getElementById('btn-html').addEventListener('click', () => openHtml(path));
   document.getElementById('btn-claude').addEventListener('click', () => openMinutesInClaude(path));
   document.getElementById('btn-regenerate').addEventListener('click', () => toggleRegenBar());
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
-  document.getElementById('btn-edit-notes').addEventListener('click', () => toggleEditNotes(path));
+  document.getElementById('btn-edit-notes').addEventListener('click', () => editActive(path));
   document.getElementById('btn-sticky').addEventListener('click', () => addSticky());
-  document.getElementById('btn-copy').addEventListener('click', () => copyNote());
+  document.getElementById('btn-copy').addEventListener('click', () => copyActive());
   // Menú "más acciones" (overflow)
   const _moreBtn = document.getElementById('btn-more');
   const _actionMenu = document.getElementById('action-menu');
@@ -1149,19 +1357,32 @@ async function openMeeting(path) {
   requestAnimationFrame(() => {
     const header = panel.querySelector('.detail-header');
     const tabs   = panel.querySelector('.detail-tabs');
-    if (header && tabs) tabs.style.top = header.offsetHeight + 'px';
+    const abar   = panel.querySelector('.detail-actions-bar');
+    const layer  = panel.querySelector('#sticky-layer');
+    const hH = header ? header.offsetHeight : 0;
+    const tH = tabs   ? tabs.offsetHeight   : 0;
+    const aH = abar   ? abar.offsetHeight   : 0;
+    if (tabs)  tabs.style.top  = hH + 'px';
+    if (abar)  abar.style.top  = (hH + tH) + 'px';
+    if (layer) layer.style.top = (hH + tH + aH + 14) + 'px';
   });
 
   // Tabs: sub-pantallas exclusivas
+  _activeDetailTab = 'notes';
+  _editingActions = false;
+  _updateActionBar('notes');
   document.querySelectorAll('.detail-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       const which = tab.dataset.tab;
+      _activeDetailTab = which;
+      if (which !== 'actions') _exitActionsEdit(path);
       document.getElementById('section-notes').classList.toggle('hidden', which !== 'notes');
       document.getElementById('section-actions').classList.toggle('hidden', which !== 'actions');
       const tsec = document.getElementById('section-transcript');
       if (tsec) tsec.classList.toggle('hidden', which !== 'transcript');
+      _updateActionBar(which);
       panel.scrollTo({ top: 0, behavior: 'smooth' });
       if (which === 'transcript') _loadTranscript(path);
     });
@@ -1255,7 +1476,34 @@ function actionMetaHtml(a, meetingDate, claudeExec) {
 
 // ── Tarjetas de acciones (vista Notas) ────────────────────────────────────────
 
-function renderActionCards(actions, path, container, meetingDate) {
+function renderActionCards(actions, path, container, meetingDate, editable) {
+  if (editable) {
+    container.innerHTML = actions.map(a => `
+    <div class="action-card action-card-edit" id="card-${a.index}">
+      <input class="action-edit-field action-edit-title" data-field="title" data-idx="${a.index}"
+             value="${escHtml(a.title || '')}" placeholder="${t('action_title_ph')}">
+      <div class="action-edit-row">
+        <label class="action-edit-label">${t('owner_label')}</label>
+        <input class="action-edit-field" data-field="assignee" data-idx="${a.index}"
+               value="${escHtml(a.assignee || '')}" placeholder="—">
+        <label class="action-edit-label">${t('deadline_label')}</label>
+        <input class="action-edit-field" data-field="deadline" data-idx="${a.index}"
+               value="${escHtml(a.deadline || '')}" placeholder="—">
+        <button class="btn btn-delete btn-sm" data-del="${a.index}" title="${t('btn_delete')}" style="margin-left:auto">×</button>
+      </div>
+    </div>`).join('');
+    container.querySelectorAll('.action-edit-field').forEach(el => {
+      el.addEventListener('blur', () => {
+        const idx = parseInt(el.dataset.idx);
+        pywebview.api.update_meeting_action(path, idx, { [el.dataset.field]: el.value.trim() });
+      });
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.blur(); });
+    });
+    container.querySelectorAll('[data-del]').forEach(el => {
+      el.addEventListener('click', () => deleteAction(path, parseInt(el.dataset.del), el));
+    });
+    return;
+  }
   container.innerHTML = actions.map(a => {
     const prompt = a.prompt_enriched || a.prompt_original || '';
     const claudeExec = a.claude_executable || (a.type && a.type !== 'human' && prompt.trim().length > 0);
@@ -1485,6 +1733,61 @@ function renderTaskBoard() {
 
   body.innerHTML = sections.map(p => _renderProjectSection(p, byProject[p.id] || [])).join('');
   _bindTaskBoardEvents();
+  _applyTaskColWidths();
+  _initTaskColResizers();
+}
+
+// ── Columnas redimensionables del panel de acciones ───────────────────────────
+const _TASK_COLS = ['status', 'assignee', 'deadline', 'priority'];
+
+// Aplica los anchos guardados (localStorage) a las variables CSS compartidas.
+function _applyTaskColWidths() {
+  const body = document.getElementById('task-board-body');
+  if (!body) return;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('taskColWidths') || '{}'); } catch (_) {}
+  _TASK_COLS.forEach(col => {
+    const w = parseInt(saved[col]);
+    if (w) body.style.setProperty('--tcol-' + col, w + 'px');
+  });
+}
+
+// Habilita arrastrar los tiradores de las cabeceras para redimensionar columnas.
+function _initTaskColResizers() {
+  const body = document.getElementById('task-board-body');
+  if (!body) return;
+  body.querySelectorAll('.task-col-resize').forEach(handle => {
+    handle.addEventListener('click', (e) => e.stopPropagation());
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const col    = handle.dataset.col;
+      const startX = e.clientX;
+      const startW = handle.parentElement.getBoundingClientRect().width;
+      handle.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      const onMove = (ev) => {
+        const w = Math.max(60, Math.min(500, Math.round(startW + (ev.clientX - startX))));
+        body.style.setProperty('--tcol-' + col, w + 'px');
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        const cur = parseInt(body.style.getPropertyValue('--tcol-' + col));
+        if (cur) {
+          let saved = {};
+          try { saved = JSON.parse(localStorage.getItem('taskColWidths') || '{}'); } catch (_) {}
+          saved[col] = cur;
+          localStorage.setItem('taskColWidths', JSON.stringify(saved));
+        }
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
 }
 
 function _renderProjectSection(project, projectTasks) {
@@ -1506,10 +1809,10 @@ function _renderProjectSection(project, projectTasks) {
     <div class="task-project-body" id="proj-body-${project.id}">
       <div class="task-col-headers">
         <span class="task-col-hdr">${t('task_col_name')}</span>
-        <span class="task-col-hdr">${t('task_col_status')}</span>
-        <span class="task-col-hdr">${t('task_col_assignee')}</span>
-        <span class="task-col-hdr">${t('task_col_deadline')}</span>
-        <span class="task-col-hdr">${t('task_col_priority')}</span>
+        <span class="task-col-hdr">${t('task_col_status')}<span class="task-col-resize" data-col="status"></span></span>
+        <span class="task-col-hdr">${t('task_col_assignee')}<span class="task-col-resize" data-col="assignee"></span></span>
+        <span class="task-col-hdr">${t('task_col_deadline')}<span class="task-col-resize" data-col="deadline"></span></span>
+        <span class="task-col-hdr">${t('task_col_priority')}<span class="task-col-resize" data-col="priority"></span></span>
         <span></span>
       </div>
       ${topLevel.map(task => _renderTaskRow(task, subMap[task.id] || [], false)).join('')}
@@ -3254,7 +3557,8 @@ async function toggleEditNotes(path) {
   const _tb = sec.querySelector('.notes-edit-toolbar');
   const _hdr = document.querySelector('.detail-header');
   const _tabs = document.querySelector('.detail-tabs');
-  if (_tb) _tb.style.top = ((_hdr?.offsetHeight || 0) + (_tabs?.offsetHeight || 0)) + 'px';
+  const _abar = document.querySelector('.detail-actions-bar');
+  if (_tb) _tb.style.top = ((_hdr?.offsetHeight || 0) + (_tabs?.offsetHeight || 0) + (_abar?.offsetHeight || 0)) + 'px';
   sec.querySelectorAll('.notes-tool').forEach(btn => {
     btn.addEventListener('mousedown', e => e.preventDefault());
     btn.addEventListener('click', () => {

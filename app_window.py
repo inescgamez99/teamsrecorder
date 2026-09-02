@@ -461,6 +461,27 @@ class AppAPI:
             log.error(f"delete_action: {e}")
             return False
 
+    def update_meeting_action(self, path: str, index: int, updates: dict) -> bool:
+        """Actualiza campos editables (título, responsable, deadline) de una acción."""
+        from actions_enricher import get_actions_path
+        ap = get_actions_path(Path(path))
+        if not ap.exists():
+            return False
+        allowed = {'title', 'assignee', 'deadline'}
+        try:
+            data = json.loads(ap.read_text(encoding='utf-8'))
+            for a in data.get('actions', []):
+                if a['index'] == index:
+                    for k, v in (updates or {}).items():
+                        if k in allowed:
+                            a[k] = v
+                    break
+            ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"update_meeting_action: {e}")
+            return False
+
     def move_to_panel(self, path: str, index: int) -> bool:
         """Marca una acción como 'en panel' para que aparezca en el panel global."""
         from actions_enricher import get_actions_path
@@ -1182,6 +1203,83 @@ class AppAPI:
             return True
         except Exception as e:
             log.error(f"send_email: {e}")
+            return False
+
+    def _meeting_recipients(self, md_path: Path) -> list:
+        """Destinatarios por defecto de una reunión: stakeholders de su proyecto."""
+        participants = []
+        try:
+            from actions_enricher import get_actions_path
+            ap = get_actions_path(md_path)
+            if ap.exists():
+                adata = json.loads(ap.read_text(encoding='utf-8'))
+                project_id = adata.get('project_id', '')
+                if project_id and project_id != 'none':
+                    projects_file = PROJECT_DIR / 'projects.json'
+                    if projects_file.exists():
+                        pdata = json.loads(projects_file.read_text(encoding='utf-8'))
+                        proj = next((p for p in pdata.get('projects', []) if p['id'] == project_id), None)
+                        if proj:
+                            stakeholders = proj.get('stakeholders', [])
+                            participants = [{'email': e, 'name': e} for e in stakeholders if e.strip()]
+        except Exception:
+            pass
+        return participants
+
+    def send_actions_email(self, path: str) -> bool:
+        """Abre un borrador de Outlook con las acciones de la reunión en una tabla."""
+        from outlook_sender import send_actions_email as _send_actions
+        from actions_enricher import load_enriched
+        md_path = Path(path)
+        actions = load_enriched(md_path) or []
+        if not actions:
+            return False
+        meta = _parse_stem(md_path.stem)
+        lang = _detect_notes_language(md_path)
+        try:
+            return _send_actions(
+                title=meta['title'],
+                date_str=meta.get('date', ''),
+                actions=actions,
+                participants=self._meeting_recipients(md_path),
+                language=lang,
+            )
+        except Exception as e:
+            log.error(f"send_actions_email: {e}")
+            return False
+
+    def send_transcript_email(self, path: str) -> bool:
+        """Abre un borrador de Outlook con la transcripción como fichero adjunto."""
+        from outlook_sender import send_transcript_email as _send_transcript
+        md_path = Path(path)
+        tpath = self._find_transcript_file(md_path)
+        if not tpath or not tpath.exists():
+            return False
+        meta = _parse_stem(md_path.stem)
+        lang = _detect_notes_language(md_path)
+        try:
+            return _send_transcript(
+                title=meta['title'],
+                date_str=meta.get('date', ''),
+                transcript_path=tpath,
+                participants=self._meeting_recipients(md_path),
+                language=lang,
+            )
+        except Exception as e:
+            log.error(f"send_transcript_email: {e}")
+            return False
+
+    def save_transcript(self, path: str, text: str) -> bool:
+        """Guarda las correcciones de la transcripción en su fichero .txt."""
+        try:
+            tpath = self._find_transcript_file(Path(path))
+            if not tpath:
+                return False
+            tpath.write_text(text, encoding='utf-8')
+            log.info(f"Transcripción actualizada: {tpath.name}")
+            return True
+        except Exception as e:
+            log.error(f"save_transcript: {e}")
             return False
 
     def regenerate_minutes(self, path: str, extra_context: str, lang: str = '') -> bool:
