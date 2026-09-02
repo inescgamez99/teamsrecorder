@@ -100,6 +100,7 @@ _LANG_SECTIONS = {
         "Topics Discussed",
         "Decisions Made",
         "Pending Actions (first: table with ALL actions — columns: Action | Owner | Deadline; mark Claude-executable actions with '(Claude)' next to the owner. Then: one technical block per Claude-executable action, in the formats described above)",
+        "Open Questions & Risks (unresolved questions raised, decisions still pending, and any risks/blockers mentioned. Use a bullet list. If there are none, write 'None')",
         "Additional Notes",
     ],
     'es': [
@@ -108,6 +109,7 @@ _LANG_SECTIONS = {
         "Temas Tratados",
         "Decisiones Tomadas",
         "Acciones Pendientes (primero: tabla con TODAS las acciones — columnas: Acción | Responsable | Fecha límite; marca las ejecutables por Claude con '(Claude)' junto al responsable. Después: un bloque técnico por cada acción Claude, en los formatos descritos arriba)",
+        "Preguntas Abiertas y Riesgos (preguntas sin resolver que se plantearon, decisiones aún pendientes, y riesgos o bloqueos mencionados. Usa una lista con viñetas. Si no hay, escribe 'Ninguno')",
         "Notas Adicionales",
     ],
 }
@@ -169,13 +171,37 @@ def _build_prompt(transcript: str, recording_path: Path, extra_context: str | No
     return '\n'.join(parts)
 
 
-def _generate_via_cli(transcript: str, recording_path: Path, extra_context: str | None = None, language: str = 'auto') -> str | None:
+def _generate_via_cli(transcript: str, recording_path: Path, extra_context: str | None = None,
+                      language: str = 'auto', context_dir: str | None = None) -> str | None:
     if not _CLAUDE_BIN:
         log.error("claude CLI no encontrado en PATH")
         return None
 
     user_prompt = _build_prompt(transcript, recording_path, extra_context, language)
     system_prompt = _get_system_prompt(language).replace('```', '~~~')
+
+    # Acceso agéntico a la carpeta del proyecto (memoria + documentos vinculados):
+    # Claude puede buscar/leer lo relevante por sí mismo para dar precisión y continuidad.
+    cmd = [_CLAUDE_BIN, '-p']
+    if context_dir:
+        cmd += ['--add-dir', context_dir, '--allowedTools', 'Read', 'Grep', 'Glob']
+        agentic_note = (
+            "\n\n## Contexto del proyecto (carpeta añadida)\n"
+            "Tienes acceso de solo lectura a una carpeta con la MEMORIA del proyecto: "
+            "documentos vinculados (en `docs/`) y resúmenes de reuniones anteriores (en `meetings/`). "
+            "Busca (grep) y lee lo que sea relevante para esta reunión para: usar la terminología, "
+            "siglas y nombres correctos; dar continuidad con decisiones previas; y ganar precisión. "
+            "NO copies ni resumas esos documentos: úsalos solo como conocimiento de fondo."
+            if language != 'en' else
+            "\n\n## Project context (added folder)\n"
+            "You have read-only access to a folder with the project's MEMORY: linked documents "
+            "(in `docs/`) and summaries of previous meetings (in `meetings/`). Search (grep) and read "
+            "whatever is relevant to this meeting to: use correct terminology, acronyms and names; "
+            "keep continuity with previous decisions; and be more precise. Do NOT copy or summarize "
+            "those documents: use them only as background knowledge."
+        )
+        system_prompt = system_prompt + agentic_note
+
     full_prompt = system_prompt + '\n\n' + user_prompt
 
     try:
@@ -190,7 +216,7 @@ def _generate_via_cli(transcript: str, recording_path: Path, extra_context: str 
             CREATE_NO_WINDOW = 0
 
         proc = subprocess.Popen(
-            [_CLAUDE_BIN, '-p'],
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -242,14 +268,17 @@ def generate_minutes(
     extra_context: str | None = None,
     on_complete=None,
     language: str = 'auto',
+    context_dir: str | None = None,
 ) -> str | None:
     """
     Si on_complete es callable, ejecuta en thread daemon y devuelve None.
     Si no, bloquea y devuelve el texto de las minutas.
+    context_dir: carpeta del proyecto para acceso agéntico (memoria + documentos).
     """
     def _run():
-        log.info(f"Generando minutas con claude CLI (idioma: {language})...")
-        result = _generate_via_cli(transcript, recording_path, extra_context, language)
+        log.info(f"Generando minutas con claude CLI (idioma: {language}"
+                 f"{', con contexto de proyecto' if context_dir else ''})...")
+        result = _generate_via_cli(transcript, recording_path, extra_context, language, context_dir)
         if on_complete:
             on_complete(result)
         return result

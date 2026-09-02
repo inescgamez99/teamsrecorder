@@ -21,7 +21,8 @@ BORDER   = '#585b70'
 
 
 class RecordingPopup:
-    def __init__(self, on_yes=None, on_no=None, timeout=POPUP_TIMEOUT):
+    def __init__(self, on_yes=None, on_no=None, timeout=POPUP_TIMEOUT,
+                 title=None, subtitle=None, yes_label=None, no_label=None):
         self._on_yes = on_yes
         self._on_no  = on_no
         self._timeout = timeout
@@ -29,12 +30,21 @@ class RecordingPopup:
         self._top: tk.Toplevel | None = None
         self._countdown_var: tk.StringVar | None = None
         self._remaining = timeout
+        # Textos personalizados (para el popup de "seguir grabando", etc.)
+        self._title = title
+        self._subtitle = subtitle
+        self._yes_label = yes_label
+        self._no_label = no_label
 
     def show(self):
         run_in_tk(self._create)
 
     def _create(self):
-        s = _STR.get(get_ui_language(), _STR['en'])
+        s = dict(_STR.get(get_ui_language(), _STR['en']))
+        if self._title is not None:     s['title'] = self._title
+        if self._subtitle is not None:  s['subtitle'] = self._subtitle
+        if self._yes_label is not None: s['yes'] = self._yes_label
+        if self._no_label is not None:  s['no'] = self._no_label
         root = get_root()
 
         top = tk.Toplevel(root)

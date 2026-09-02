@@ -34,7 +34,16 @@ let currentLang = localStorage.getItem('lang') || 'es';
 
 const T = {
   es: {
-    nav_notes: 'Notas', nav_action_panel: 'Panel Acciones', nav_projects: 'Proyectos', nav_trash: 'Eliminados recientemente', settings_nav: 'Ajustes',
+    nav_notes: 'Notas', nav_action_panel: 'Acciones', nav_projects: 'Proyectos', nav_status: 'En curso', nav_trash: 'Papelera', settings_nav: 'Ajustes',
+    status_idle: 'Sin actividad', pipeline_queued: 'en cola',
+    step_transcribing: 'Transcribiendo', step_minutes: 'Generando minutas', step_actions: 'Generando acciones',
+    rename_hint: 'Renombrar la nota', toast_renamed: 'Nota renombrada',
+    rename_exists: 'Ya existe una nota con ese nombre', rename_failed: 'No se pudo renombrar',
+    proj_pick_color: 'Color',
+    pin: 'Fijar', unpin: 'Quitar de fijadas', pinned: 'Fijadas',
+    sticky_add: 'Añadir post-it', sticky_min: 'Minimizar', sticky_del: 'Eliminar', sticky_ph: 'Escribe aquí...',
+    copy_note: 'Copiar nota', copied: 'Nota copiada al portapapeles', copy_empty: 'No hay nota que copiar', copy_failed: 'No se pudo copiar',
+    more_actions: 'Más acciones', export_html: 'Exportar a HTML', open_in_claude: 'Abrir en Claude', send_email: 'Enviar por email',
     trash_desc: 'Las reuniones eliminadas se guardan aquí. Puedes recuperarlas o borrarlas definitivamente.',
     trash_empty: 'La papelera está vacía.',
     trash_recover: 'Recuperar', trash_delete_forever: 'Borrar definitivamente',
@@ -133,11 +142,18 @@ const T = {
     proj_dir_desc: 'Por defecto, TeamsRecorder guarda todo en su propia carpeta. Si seleccionas aquí la carpeta raíz de tu proyecto, las acciones de Claude se ejecutarán desde ahí.',
     proj_folder_default: 'Carpeta de TeamsRecorder (por defecto)',
     proj_folder_browse: 'Seleccionar carpeta',
+    proj_context_label: 'Memoria del proyecto (carpetas de contexto)',
+    proj_context_desc: 'Vincula carpetas de tu PC o SharePoint (Word, PPT, PDF, Excel...). La app destila su contenido en una memoria del proyecto que da contexto y precisión a las minutas. Se actualiza sola con cada reunión.',
+    proj_context_add: 'Vincular carpeta',
+    mem_update: 'Actualizar memoria', mem_updating: 'Actualizando memoria del proyecto...',
+    mem_updated: 'Memoria del proyecto actualizada', mem_failed: 'No se pudo actualizar la memoria',
+    mem_none: 'Sin memoria todavía — vincula carpetas y pulsa "Actualizar memoria"', mem_view: 'Ver memoria',
+    mem_cancelled: 'Cancelado', remove: 'Quitar',
     proj_folder_clear: 'Restablecer',
     account_settings_title: 'Cuenta',
     project_settings_title: 'Configuración de proyectos',
     no_projects: 'Sin proyectos',
-    sidebar_days: '📅 Días', sidebar_projects: '📁 Proyectos',
+    sidebar_days: 'Días', sidebar_projects: 'Proyectos',
     all_projects: 'Todos los proyectos',
     toast_model_saved: 'Modelo guardado. Reinicia para aplicar.',
     edit_btn: 'Editar', cancel_btn: 'Cancelar',
@@ -198,7 +214,16 @@ const T = {
     add_action_cancel: 'Cancelar',
   },
   en: {
-    nav_notes: 'Notes', nav_action_panel: 'Action Panel', nav_projects: 'Projects', nav_trash: 'Recently Deleted', settings_nav: 'Settings',
+    nav_notes: 'Notes', nav_action_panel: 'Actions', nav_projects: 'Projects', nav_status: 'In progress', nav_trash: 'Trash', settings_nav: 'Settings',
+    status_idle: 'No activity', pipeline_queued: 'queued',
+    step_transcribing: 'Transcribing', step_minutes: 'Generating minutes', step_actions: 'Generating actions',
+    rename_hint: 'Rename note', toast_renamed: 'Note renamed',
+    rename_exists: 'A note with that name already exists', rename_failed: 'Could not rename',
+    proj_pick_color: 'Color',
+    pin: 'Pin', unpin: 'Unpin', pinned: 'Pinned',
+    sticky_add: 'Add sticky note', sticky_min: 'Minimize', sticky_del: 'Delete', sticky_ph: 'Write here...',
+    copy_note: 'Copy note', copied: 'Note copied to clipboard', copy_empty: 'Nothing to copy', copy_failed: 'Could not copy',
+    more_actions: 'More actions', export_html: 'Export to HTML', open_in_claude: 'Open in Claude', send_email: 'Send by email',
     trash_desc: 'Deleted meetings are kept here. You can recover them or delete them permanently.',
     trash_empty: 'Trash is empty.',
     trash_recover: 'Recover', trash_delete_forever: 'Delete permanently',
@@ -297,11 +322,18 @@ const T = {
     proj_dir_desc: 'By default, TeamsRecorder saves everything in its own folder. Select your project\'s root folder here so Claude actions run from the right working directory.',
     proj_folder_default: 'TeamsRecorder folder (default)',
     proj_folder_browse: 'Browse folder',
+    proj_context_label: 'Project memory (context folders)',
+    proj_context_desc: 'Link folders from your PC or SharePoint (Word, PPT, PDF, Excel...). The app distills their content into a project memory that gives context and precision to the minutes. It updates automatically with each meeting.',
+    proj_context_add: 'Link folder',
+    mem_update: 'Update memory', mem_updating: 'Updating project memory...',
+    mem_updated: 'Project memory updated', mem_failed: 'Could not update memory',
+    mem_none: 'No memory yet — link folders and press "Update memory"', mem_view: 'View memory',
+    mem_cancelled: 'Cancelled', remove: 'Remove',
     proj_folder_clear: 'Reset',
     account_settings_title: 'Account',
     project_settings_title: 'Project settings',
     no_projects: 'No projects yet',
-    sidebar_days: '📅 Days', sidebar_projects: '📁 Projects',
+    sidebar_days: 'Days', sidebar_projects: 'Projects',
     all_projects: 'All projects',
     toast_model_saved: 'Model saved. Restart to apply.',
     edit_btn: 'Edit', cancel_btn: 'Cancel',
@@ -422,7 +454,19 @@ window.addEventListener('pywebviewready', async () => {
   }, 2000);
 });
 
+function _showSidebarSkeleton() {
+  const list = document.getElementById('meetings-list');
+  if (!list) return;
+  const rows = Array.from({ length: 7 }, (_, i) =>
+    `<div class="skel-item">
+       <div class="skeleton skel-line skel-time"></div>
+       <div class="skeleton skel-line skel-title${i % 3 === 0 ? ' short' : ''}"></div>
+     </div>`).join('');
+  list.innerHTML = `<div class="skel-list">${rows}</div>`;
+}
+
 async function loadMeetings() {
+  _showSidebarSkeleton();
   const meetings = await pywebview.api.get_meetings();
   allMeetings = meetings;
   meetingPaths.length = 0;
@@ -454,11 +498,13 @@ function showView(view) {
   document.getElementById('view-meetings').classList.toggle('hidden', view !== 'meetings');
   document.getElementById('view-actions').classList.toggle('hidden', view !== 'actions');
   document.getElementById('view-projects').classList.toggle('hidden', view !== 'projects');
+  document.getElementById('view-status').classList.toggle('hidden', view !== 'status');
   document.getElementById('view-trash').classList.toggle('hidden', view !== 'trash');
   document.getElementById('view-settings').classList.toggle('hidden', view !== 'settings');
   document.getElementById('btn-meetings').classList.toggle('active', view === 'meetings');
   document.getElementById('btn-actions').classList.toggle('active', view === 'actions');
   document.getElementById('btn-projects').classList.toggle('active', view === 'projects');
+  document.getElementById('btn-status').classList.toggle('active', view === 'status');
   document.getElementById('btn-trash').classList.toggle('active', view === 'trash');
   document.getElementById('btn-settings').classList.toggle('active', view === 'settings');
   if (view === 'actions') loadTaskBoard();
@@ -486,6 +532,23 @@ function renderSidebar(meetings) {
   }
 }
 
+const _PIN_SVG = `<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.8a2 2 0 0 0-1.1-1.7l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+
+function _meetingItemHtml(m) {
+  const path = meetingPaths[m.idx] || '';
+  return `
+    <div class="meeting-item${m.pinned ? ' pinned' : ''}" data-midx="${m.idx}">
+      <div class="meeting-time">${m.time || ''}</div>
+      <div class="meeting-info">
+        <div class="meeting-title">${escHtml(m.title)}</div>
+      </div>
+      <div class="meeting-item-actions">
+        <button class="btn-pin-meeting${m.pinned ? ' pinned' : ''}" data-pin-path="${escHtml(path)}" title="${m.pinned ? t('unpin') : t('pin')}">${_PIN_SVG}</button>
+        <button class="btn-delete-meeting" data-del-path="${escHtml(path)}" title="${t('btn_delete_meeting')}">×</button>
+      </div>
+    </div>`;
+}
+
 function renderSidebarByDays(meetings) {
   const list = document.getElementById('meetings-list');
   if (!meetings.length) {
@@ -493,31 +556,29 @@ function renderSidebarByDays(meetings) {
     return;
   }
 
+  const withIdx = meetings.map((m, idx) => ({ ...m, idx }));
+  const pinned = withIdx.filter(m => m.pinned);
+  const rest   = withIdx.filter(m => !m.pinned);
+
   const groups = {};
-  meetings.forEach((m, idx) => {
+  rest.forEach(m => {
     const label = dayLabel(m.date);
     if (!groups[label]) groups[label] = [];
-    groups[label].push({ ...m, idx });
+    groups[label].push(m);
   });
 
-  list.innerHTML = Object.entries(groups).map(([label, items]) => `
-    <div class="day-group">
-      <div class="day-label">${label}</div>
-      ${items.map(m => `
-        <div class="meeting-item" data-midx="${m.idx}">
-          <div class="meeting-time">${m.time || ''}</div>
-          <div class="meeting-info">
-            <div class="meeting-title">${escHtml(m.title)}</div>
-          </div>
-          <button class="btn-delete-meeting" data-del-path="${escHtml(meetingPaths[m.idx] || '')}" title="${t('btn_delete_meeting')}">×</button>
-        </div>
-      `).join('')}
-    </div>
-  `).join('');
+  let html = '';
+  if (pinned.length) {
+    html += `<div class="day-group"><div class="day-label pinned-label"><svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11" style="vertical-align:-1px;margin-right:4px"><path d="M9 2h6a1 1 0 0 1 1 1v6l2 3v2H6v-2l2-3V3a1 1 0 0 1 1-1zm2 13h2v7h-2z"/></svg>${t('pinned')}</div>${pinned.map(_meetingItemHtml).join('')}</div>`;
+  }
+  html += Object.entries(groups).map(([label, items]) =>
+    `<div class="day-group"><div class="day-label">${label}</div>${items.map(_meetingItemHtml).join('')}</div>`
+  ).join('');
+  list.innerHTML = html;
 
   list.querySelectorAll('.meeting-item').forEach(el => {
     el.addEventListener('click', e => {
-      if (e.target.closest('.btn-delete-meeting')) return;
+      if (e.target.closest('.btn-delete-meeting') || e.target.closest('.btn-pin-meeting')) return;
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
     });
@@ -533,6 +594,13 @@ function renderSidebarByDays(meetings) {
       e.stopPropagation();
       const p = btn.dataset.delPath;
       _confirmDeleteMeeting(p, (allMeetings.find(m => m.path === p) || {}).title || '', btn.closest('.meeting-item'));
+    });
+  });
+  list.querySelectorAll('.btn-pin-meeting').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await pywebview.api.toggle_pin(btn.dataset.pinPath);
+      await refreshMeetingList();
     });
   });
 }
@@ -696,6 +764,181 @@ document.addEventListener('click', (e) => {
 });
 }
 
+// ── Renombrar título de la nota ──────────────────────────────────────────────
+
+let _renamingMeeting = false;
+
+function startRenameMeeting() {
+  if (_renamingMeeting || !currentPath) return;
+  const el = document.getElementById('detail-title');
+  if (!el) return;
+  _renamingMeeting = true;
+
+  const current = el.textContent;
+  const input = document.createElement('input');
+  input.className = 'detail-title-input';
+  input.value = current;
+  input.maxLength = 80;
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    _renamingMeeting = false;
+    const newTitle = input.value.trim();
+    if (save && newTitle && newTitle !== current) {
+      const res = await pywebview.api.rename_meeting(currentPath, newTitle);
+      if (res && res.ok) {
+        currentPath = res.path;
+        showToast(t('toast_renamed'));
+        await loadMeetings();
+        await openMeeting(res.path);
+        return;
+      }
+      const msg = (res && res.error === 'exists') ? t('rename_exists') : t('rename_failed');
+      showToast(msg);
+    }
+    // Restaurar sin cambios
+    if (currentPath) await openMeeting(currentPath);
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')      { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape'){ e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
+// ── Copiar nota ──────────────────────────────────────────────────────────────
+
+function copyNote() {
+  const el = document.querySelector('#section-notes .minutes-content');
+  if (!el) { showToast(t('copy_empty')); return; }
+  const html = el.innerHTML;
+  const text = el.innerText.trim();
+  if (!text) { showToast(t('copy_empty')); return; }
+  const done = () => showToast(t('copied'));
+
+  // Fallback enriquecido: selecciona el HTML y copia con execCommand
+  // (mantiene tablas y formato al pegar en Word/Outlook/OneNote; funciona en file://)
+  const richFallback = () => {
+    const div = document.createElement('div');
+    div.contentEditable = 'true';
+    div.innerHTML = html;
+    div.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.appendChild(div);
+    const range = document.createRange();
+    range.selectNodeContents(div);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    sel.removeAllRanges();
+    div.remove();
+    if (ok) done();
+    else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => showToast(t('copy_failed')));
+    } else { showToast(t('copy_failed')); }
+  };
+
+  // Preferente: Clipboard API con HTML + texto plano (pegado rico o plano según destino)
+  if (navigator.clipboard && window.ClipboardItem) {
+    try {
+      const item = new ClipboardItem({
+        'text/html':  new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      });
+      navigator.clipboard.write([item]).then(done, richFallback);
+    } catch (_) { richFallback(); }
+  } else {
+    richFallback();
+  }
+}
+
+// ── Sticky notes (post-its) ──────────────────────────────────────────────────
+let _stickies = [];
+let _stickySaveTimer = null;
+
+async function _loadStickies(path) {
+  const layer = document.getElementById('sticky-layer');
+  if (!layer) return;
+  try { _stickies = (await pywebview.api.get_stickies(path)) || []; }
+  catch (_) { _stickies = []; }
+  layer.innerHTML = _stickies.map(_stickyHtml).join('');
+  _wireStickies();
+}
+
+function _stickyPreview(text) {
+  return escHtml((text || '').split('\n')[0].slice(0, 26));
+}
+
+function _stickyHtml(s) {
+  return `
+    <div class="sticky-note${s.minimized ? ' min' : ''}" data-sid="${escHtml(s.id)}">
+      <div class="sticky-head">
+        <span class="sticky-preview">${_stickyPreview(s.text)}</span>
+        <button class="sticky-btn sticky-min" title="${t('sticky_min')}">${s.minimized ? '+' : '–'}</button>
+        <button class="sticky-btn sticky-del" title="${t('sticky_del')}">×</button>
+      </div>
+      <textarea class="sticky-body" placeholder="${t('sticky_ph')}" spellcheck="false">${escHtml(s.text || '')}</textarea>
+    </div>`;
+}
+
+function _wireStickies() {
+  const layer = document.getElementById('sticky-layer');
+  if (!layer) return;
+  layer.querySelectorAll('.sticky-note').forEach(node => {
+    const id = node.dataset.sid;
+    const ta = node.querySelector('.sticky-body');
+    node.querySelector('.sticky-del').onclick = () => {
+      _stickies = _stickies.filter(x => x.id !== id);
+      node.remove();
+      _saveStickies();
+    };
+    node.querySelector('.sticky-min').onclick = (e) => {
+      const s = _stickies.find(x => x.id === id);
+      if (!s) return;
+      s.minimized = !s.minimized;
+      node.classList.toggle('min', s.minimized);
+      e.currentTarget.textContent = s.minimized ? '+' : '–';
+      const prev = node.querySelector('.sticky-preview');
+      if (prev) prev.textContent = (ta.value || '').split('\n')[0].slice(0, 26);
+      _saveStickies();
+    };
+    ta.oninput = () => {
+      const s = _stickies.find(x => x.id === id);
+      if (s) s.text = ta.value;
+      _saveStickies();
+    };
+  });
+}
+
+function addSticky() {
+  if (!currentPath) return;
+  const layer = document.getElementById('sticky-layer');
+  if (!layer) return;
+  const s = { id: 'st' + Date.now(), text: '', minimized: false };
+  _stickies.push(s);
+  layer.insertAdjacentHTML('beforeend', _stickyHtml(s));
+  _wireStickies();
+  _saveStickies();
+  const ta = layer.querySelector(`.sticky-note[data-sid="${s.id}"] .sticky-body`);
+  if (ta) ta.focus();
+}
+
+function _saveStickies() {
+  clearTimeout(_stickySaveTimer);
+  const path = currentPath;
+  const snapshot = JSON.parse(JSON.stringify(_stickies));
+  _stickySaveTimer = setTimeout(() => {
+    try { pywebview.api.save_stickies(path, snapshot); } catch (_) {}
+  }, 400);
+}
+
 function _showMeetingContextMenu(e, path, title, el) {
   e.preventDefault();
   e.stopPropagation();
@@ -789,9 +1032,13 @@ async function openMeeting(path) {
 
   panel.innerHTML = `
     <div class="meeting-detail">
+      <div class="sticky-layer" id="sticky-layer"></div>
       <div class="detail-header">
         <div>
-          <div class="detail-title">${escHtml(meeting.title || t('empty_title'))}</div>
+          <div class="detail-title-row">
+            <div class="detail-title" id="detail-title" title="${t('rename_hint')}" ondblclick="startRenameMeeting()">${escHtml(meeting.title || t('empty_title'))}</div>
+            <button class="detail-title-edit" title="${t('rename_hint')}" onclick="startRenameMeeting()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          </div>
           <div class="detail-meta">
             <span>${meeting.date || ''} ${meeting.time || ''}</span>
             <span class="detail-project-wrap">
@@ -801,11 +1048,18 @@ async function openMeeting(path) {
           </div>
         </div>
         <div class="detail-actions-bar">
-          <button class="action-icon-btn action-icon-btn--accent" id="btn-claude" title="Claude"><svg width="16" height="16" viewBox="0 0 248 248" fill="currentColor"><path d="M52.4285 162.873L98.7844 136.879L99.5485 134.602L98.7844 133.334H96.4921L88.7237 132.862L62.2346 132.153L39.3113 131.207L17.0249 130.026L11.4214 128.844L6.2 121.873L6.7094 118.447L11.4214 115.257L18.171 115.847L33.0711 116.911L55.485 118.447L71.6586 119.392L95.728 121.873H99.5485L100.058 120.337L98.7844 119.392L97.7656 118.447L74.5877 102.732L49.4995 86.1905L36.3823 76.62L29.3779 71.7757L25.8121 67.2858L24.2839 57.3608L30.6515 50.2716L39.3113 50.8623L41.4763 51.4531L50.2636 58.1879L68.9842 72.7209L93.4357 90.6804L97.0015 93.6343L98.4374 92.6652L98.6571 91.9801L97.0015 89.2625L83.757 65.2772L69.621 40.8192L63.2534 30.6579L61.5978 24.632C60.9565 22.1032 60.579 20.0111 60.579 17.4246L67.8381 7.49965L71.9133 6.19995L81.7193 7.49965L85.7946 11.0443L91.9074 24.9865L101.714 46.8451L116.996 76.62L121.453 85.4816L123.873 93.6343L124.764 96.1155H126.292V94.6976L127.566 77.9197L129.858 57.3608L132.15 30.8942L132.915 23.4505L136.608 14.4708L143.994 9.62643L149.725 12.344L154.437 19.0788L153.8 23.4505L150.998 41.6463L145.522 70.1215L141.957 89.2625H143.994L146.414 86.7813L156.093 74.0206L172.266 53.698L179.398 45.6635L187.803 36.802L193.152 32.5484H203.34L210.726 43.6549L207.415 55.1159L196.972 68.3492L188.312 79.5739L175.896 96.2095L168.191 109.585L168.882 110.689L170.738 110.53L198.755 104.504L213.91 101.787L231.994 98.7149L240.144 102.496L241.036 106.395L237.852 114.311L218.495 119.037L195.826 123.645L162.07 131.592L161.696 131.893L162.137 132.547L177.36 133.925L183.855 134.279H199.774L229.447 136.524L237.215 141.605L241.8 147.867L241.036 152.711L229.065 158.737L213.019 154.956L175.45 145.977L162.587 142.787H160.805V143.85L171.502 154.366L191.242 172.089L215.82 195.011L217.094 200.682L213.91 205.172L210.599 204.699L188.949 188.394L180.544 181.069L161.696 165.118H160.422V166.772L164.752 173.152L187.803 207.771L188.949 218.405L187.294 221.832L181.308 223.959L174.813 222.777L161.187 203.754L147.305 182.486L136.098 163.345L134.745 164.2L128.075 235.42L125.019 239.082L117.887 241.8L111.902 237.31L108.718 229.984L111.902 215.452L115.722 196.547L118.779 181.541L121.58 162.873L123.291 156.636L123.14 156.219L121.773 156.449L107.699 175.752L86.304 204.699L69.3663 222.777L65.291 224.431L58.2867 220.768L58.9235 214.27L62.8713 208.48L86.304 178.705L100.44 160.155L109.551 149.507L109.462 147.967L108.959 147.924L46.6977 188.512L35.6182 189.93L30.7788 185.44L31.4156 178.115L33.7079 175.752L52.4285 162.873Z"/></svg></button>
-          <button class="action-icon-btn" id="btn-regenerate" title="${t('btn_regenerate')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg></button>
-          <button class="action-icon-btn" id="btn-email" title="Email"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
-          <button class="action-icon-btn action-icon-btn--text" id="btn-html" title="HTML">HTML</button>
-          <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="action-icon-btn" id="btn-copy" title="${t('copy_note')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+          <button class="action-icon-btn action-icon-btn--primary" id="btn-email" title="${t('send_email')}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+          <div class="action-more-wrap">
+            <button class="action-icon-btn" id="btn-more" title="${t('more_actions')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
+            <div class="action-menu hidden" id="action-menu">
+              <button class="action-menu-item" id="btn-sticky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-6a1 1 0 0 1 1-1h6"/></svg><span>${t('sticky_add')}</span></button>
+              <button class="action-menu-item" id="btn-regenerate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg><span>${t('btn_regenerate')}</span></button>
+              <button class="action-menu-item" id="btn-html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>${t('export_html')}</span></button>
+              <button class="action-menu-item" id="btn-claude"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 8h8M8 16h5"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg><span>${t('open_in_claude')}</span></button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="regen-bar hidden" id="regen-bar">
@@ -842,6 +1096,17 @@ async function openMeeting(path) {
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
   document.getElementById('btn-edit-notes').addEventListener('click', () => toggleEditNotes(path));
+  document.getElementById('btn-sticky').addEventListener('click', () => addSticky());
+  document.getElementById('btn-copy').addEventListener('click', () => copyNote());
+  // Menú "más acciones" (overflow)
+  const _moreBtn = document.getElementById('btn-more');
+  const _actionMenu = document.getElementById('action-menu');
+  if (_moreBtn && _actionMenu) {
+    _moreBtn.addEventListener('click', () => _actionMenu.classList.toggle('hidden'));
+    _actionMenu.querySelectorAll('.action-menu-item').forEach(item =>
+      item.addEventListener('click', () => _actionMenu.classList.add('hidden')));
+  }
+  _loadStickies(path);
 
 
   requestAnimationFrame(() => {
@@ -855,9 +1120,9 @@ async function openMeeting(path) {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      const isNotes = tab.dataset.tab === 'notes';
-      document.getElementById('section-notes').classList.toggle('hidden', !isNotes);
-      document.getElementById('section-actions').classList.toggle('hidden', isNotes);
+      const which = tab.dataset.tab;
+      document.getElementById('section-notes').classList.toggle('hidden', which !== 'notes');
+      document.getElementById('section-actions').classList.toggle('hidden', which !== 'actions');
       panel.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
@@ -1620,8 +1885,101 @@ async function openProjectDir(dir) {
 // ── Project settings management ───────────────────────────────────────────────
 
 let _newProjectFolder = '';
+let _newProjectColor  = PROJECT_COLORS[0];
 let _editingProjectId = null;         // proyecto actualmente en modo edición (o null)
+
+function _renderNewProjectColors() {
+  const wrap = document.getElementById('add-proj-color-picker');
+  if (!wrap) return;
+  wrap.innerHTML = PROJECT_COLORS.map(c =>
+    `<button type="button" class="proj-color-swatch${c === _newProjectColor ? ' selected' : ''}" data-color="${c}" style="background:${c}" onclick="selectNewProjectColor(this)" title="${c}"></button>`
+  ).join('');
+}
+
+function selectNewProjectColor(swatch) {
+  _newProjectColor = swatch.dataset.color;
+  const wrap = document.getElementById('add-proj-color-picker');
+  if (wrap) wrap.querySelectorAll('.proj-color-swatch').forEach(s => s.classList.toggle('selected', s === swatch));
+}
 const _expandedProjects = new Set();  // ids de proyectos con el detalle desplegado
+
+// ── Carpetas de contexto del proyecto ────────────────────────────────────────
+function _contextDirRowHtml(dir) {
+  return `<div class="context-dir-row" data-dir="${escHtml(dir)}">
+    <svg class="context-dir-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3.5l2 2H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/></svg>
+    <span class="context-dir-path">${escHtml(dir)}</span>
+    <button class="context-dir-x" title="${t('remove') || 'Quitar'}" onclick="this.closest('.context-dir-row').remove()">✕</button>
+  </div>`;
+}
+
+async function addEditContextDir(pid) {
+  const dir = await pywebview.api.pick_folder();
+  if (!dir) return;
+  const list = document.getElementById('edit-ctx-list-' + pid);
+  if (!list) return;
+  if ([...list.querySelectorAll('.context-dir-row')].some(r => r.dataset.dir === dir)) return;
+  list.insertAdjacentHTML('beforeend', _contextDirRowHtml(dir));
+}
+
+async function addNewContextDir() {
+  const dir = await pywebview.api.pick_folder();
+  if (!dir) return;
+  const list = document.getElementById('add-proj-context-list');
+  if (!list) return;
+  if ([...list.querySelectorAll('.context-dir-row')].some(r => r.dataset.dir === dir)) return;
+  list.insertAdjacentHTML('beforeend', _contextDirRowHtml(dir));
+}
+
+function _readContextDirs(listEl) {
+  if (!listEl) return [];
+  return [...listEl.querySelectorAll('.context-dir-row')].map(r => r.dataset.dir).filter(Boolean);
+}
+
+// Guarda las carpetas y extrae sus documentos a la memoria del proyecto,
+// en segundo plano, con progreso y opción de cancelar.
+async function syncProjectMemory(pid) {
+  const btn = document.getElementById('mem-sync-' + pid);
+  const status = document.getElementById('mem-status-' + pid);
+  // Persistir las carpetas actuales antes de sincronizar
+  try {
+    const projects = await pywebview.api.get_projects();
+    const proj = projects.find(p => p.id === pid);
+    if (proj) {
+      const card = document.querySelector(`.project-settings-item[data-proj-id="${pid}"]`);
+      const ctxList = card ? card.querySelector('.context-dirs-list') : null;
+      if (ctxList) { proj.context_dirs = _readContextDirs(ctxList); await pywebview.api.save_project(proj); }
+    }
+  } catch (_) {}
+
+  try { await pywebview.api.start_project_sync(pid); } catch (_) { showToast(t('mem_failed')); return; }
+  if (btn) btn.disabled = true;
+
+  clearInterval(_memPollTimers[pid]);
+  _memPollTimers[pid] = setInterval(async () => {
+    let s;
+    try { s = await pywebview.api.get_project_sync_status(pid); } catch (_) { return; }
+    if (!s) return;
+    if (!s.done) {
+      if (status) status.innerHTML =
+        `<span class="mem-status-txt">${t('mem_updating')} ${s.current || 0}/${s.total || '…'}</span>
+         <button class="btn btn-ghost btn-sm" onclick="cancelProjectSync('${pid}')">${t('cancel_btn')}</button>`;
+    } else {
+      clearInterval(_memPollTimers[pid]);
+      if (btn) btn.disabled = false;
+      if (status) {
+        status.textContent = s.cancelled ? t('mem_cancelled')
+          : s.error ? t('mem_failed')
+          : `${t('mem_updated')}${s.count ? ' (' + s.count + ')' : ''}`;
+        setTimeout(() => { if (status && status.dataset.pid === pid) status.textContent = ''; }, 5000);
+      }
+    }
+  }, 800);
+}
+const _memPollTimers = {};
+
+async function cancelProjectSync(pid) {
+  try { await pywebview.api.cancel_project_sync(pid); } catch (_) {}
+}
 
 function toggleColorPicker(pid) {
   const picker = document.getElementById(`color-picker-${pid}`);
@@ -1732,6 +2090,18 @@ async function loadProjectsSettings(editingId = null) {
           </div>
         </div>
         <div style="margin-top:12px">
+          <div class="proj-field-label">${t('proj_context_label')}</div>
+          <div class="settings-card-desc" style="margin:3px 0 6px">${t('proj_context_desc')}</div>
+          <div id="edit-ctx-list-${pid}" class="context-dirs-list">
+            ${(p.context_dirs || []).map(d => _contextDirRowHtml(d)).join('')}
+          </div>
+          ${isEditing ? `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="addEditContextDir('${pid}')">+ ${t('proj_context_add')}</button>
+            <button class="btn btn-primary btn-sm" id="mem-sync-${pid}" onclick="syncProjectMemory('${pid}')">${t('mem_update')}</button>
+          </div>
+          <div class="mem-status" id="mem-status-${pid}" data-pid="${pid}"></div>` : ''}
+        </div>
+        <div style="margin-top:12px">
           <div class="proj-field-label">${t('export_settings_title')}</div>
           <div class="settings-card-desc" style="margin:3px 0 8px">${t('export_settings_desc_project')}</div>
           <div style="display:flex;flex-direction:column;gap:8px">
@@ -1777,6 +2147,9 @@ async function saveEditProject(pid) {
     if (stakeInput) {
       proj.stakeholders = stakeInput.value.split(',').map(s => s.trim()).filter(Boolean);
     }
+    // Carpetas de contexto (memoria del proyecto)
+    const ctxList = card.querySelector('.context-dirs-list');
+    if (ctxList) proj.context_dirs = _readContextDirs(ctxList);
     // Export flags: solo si hay carpeta configurada (si no, se preservan)
     const hasFolder = !!(proj.output_dir && proj.output_dir.trim());
     if (hasFolder) {
@@ -1789,10 +2162,20 @@ async function saveEditProject(pid) {
 
   await pywebview.api.save_project(proj);
   await loadProjectsSettings();
+  await _refreshProjectsCache();
+}
+
+// Recarga la caché global de proyectos y repinta la barra lateral (para que el
+// color/nombre nuevo se refleje al instante en Notas → Proyectos y en el board).
+async function _refreshProjectsCache() {
+  allProjects = await pywebview.api.get_projects();
+  if (typeof allMeetings !== 'undefined' && allMeetings) renderSidebar(allMeetings);
 }
 
 function showAddProjectForm() {
   document.getElementById('add-project-form').style.display = 'block';
+  _newProjectColor = PROJECT_COLORS[0];
+  _renderNewProjectColors();
   document.getElementById('proj-name').focus();
 }
 
@@ -1802,6 +2185,9 @@ function hideAddProjectForm() {
   document.getElementById('proj-desc').value = '';
   document.getElementById('proj-stakeholders').value = '';
   _newProjectFolder = '';
+  _newProjectColor = PROJECT_COLORS[0];
+  const ctxList = document.getElementById('add-proj-context-list');
+  if (ctxList) ctxList.innerHTML = '';
   const display = document.getElementById('add-proj-folder-display');
   if (display) { display.textContent = t('proj_folder_default'); display.classList.add('empty'); }
 }
@@ -1812,9 +2198,11 @@ async function saveNewProject() {
   const description = document.getElementById('proj-desc').value.trim();
   const stakeholders = document.getElementById('proj-stakeholders').value
     .split(',').map(s => s.trim()).filter(Boolean);
-  await pywebview.api.save_project({ name, description, stakeholders, output_dir: _newProjectFolder });
+  const context_dirs = _readContextDirs(document.getElementById('add-proj-context-list'));
+  await pywebview.api.save_project({ name, description, stakeholders, output_dir: _newProjectFolder, color: _newProjectColor, context_dirs });
   hideAddProjectForm();
   await loadProjectsSettings();
+  await _refreshProjectsCache();
 }
 
 // ── Modal de confirmación genérico ────────────────────────────────────────────
@@ -2196,63 +2584,66 @@ function onSearch(query) {
     const results = await pywebview.api.search(query);
     results.forEach((m, i) => { meetingPaths[i] = m.path; });
     renderSidebar(results);
+    _highlightSidebar(query);
   }, 300);
 }
 
+// Resalta el término buscado en los títulos de la lista lateral
+function _highlightSidebar(query) {
+  const q = query.trim();
+  if (!q) return;
+  const rx = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+  document.querySelectorAll('#meetings-list .meeting-title').forEach(el => {
+    const text = el.textContent;
+    el.innerHTML = text.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+                       .replace(rx, '<mark class="search-hit">$1</mark>');
+  });
+}
+
+// ── Atajos de teclado ────────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  // Ctrl/Cmd+F o Ctrl+K → ir a Notas y enfocar la búsqueda
+  if (mod && (e.key === 'f' || e.key === 'k')) {
+    e.preventDefault();
+    showView('meetings');
+    const s = document.getElementById('search-input');
+    if (s) { s.focus(); s.select(); }
+    return;
+  }
+  // Ctrl+1..6 → cambiar de vista
+  if (mod && ['1', '2', '3', '4', '5', '6'].includes(e.key)) {
+    e.preventDefault();
+    const views = ['meetings', 'actions', 'projects', 'status', 'trash', 'settings'];
+    showView(views[+e.key - 1]);
+    return;
+  }
+  // Esc → cerrar menús/modales abiertos
+  if (e.key === 'Escape') {
+    const ctx = document.getElementById('meeting-ctx-menu');
+    if (ctx) ctx.classList.add('hidden');
+    document.getElementById('action-menu')?.classList.add('hidden');
+    document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
+  }
+});
+
+// Cerrar el menú "más acciones" al hacer clic fuera
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('action-menu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  if (e.target.closest('#btn-more') || e.target.closest('#action-menu')) return;
+  menu.classList.add('hidden');
+});
+
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
-function openMinutesInClaude(path) {
-  // Mostrar picker Terminal / App
-  const existing = document.getElementById('claude-mode-picker');
-  if (existing) existing.remove();
-
-  const btn = document.getElementById('btn-claude');
-  const rect = btn.getBoundingClientRect();
-
-  const picker = document.createElement('div');
-  picker.id = 'claude-mode-picker';
-  picker.className = 'claude-mode-picker';
-  picker.style.top  = (rect.bottom + 6) + 'px';
-  picker.style.left = rect.left + 'px';
-
+async function openMinutesInClaude(path) {
+  // Abre siempre en terminal (sin picker). El transcript va como contexto.
   const noTranscript = currentLang === 'es'
     ? 'No hay transcripción disponible para esta reunión'
     : 'No transcript available for this meeting';
-
-  const terminalLabel = currentLang === 'es' ? 'Terminal' : 'Terminal';
-  const appLabel      = currentLang === 'es' ? 'App' : 'App';
-
-  picker.innerHTML = `
-    <button class="claude-mode-opt" id="claude-opt-terminal">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-      ${terminalLabel}
-    </button>
-    <button class="claude-mode-opt" id="claude-opt-app">
-      <svg width="13" height="13" viewBox="0 0 248 248" fill="currentColor"><path d="M13.827 3.52h-3.654L5.277 20.48h3.4l.85-2.807h5.946l.85 2.807h3.4L13.827 3.52zm-3.8 11.495 2.173-7.153 2.174 7.153H10.027z"/></svg>
-      ${appLabel}
-    </button>`;
-
-  document.body.appendChild(picker);
-
-  const close = (e) => { if (!picker.contains(e.target) && e.target !== btn) { picker.remove(); document.removeEventListener('mousedown', close); } };
-  setTimeout(() => document.addEventListener('mousedown', close), 0);
-
-  document.getElementById('claude-opt-terminal').onclick = async () => {
-    picker.remove();
-    document.removeEventListener('mousedown', close);
-    const ok = await pywebview.api.open_minutes_in_claude(path, currentLang);
-    if (!ok) showToast(noTranscript, 'error');
-  };
-
-  document.getElementById('claude-opt-app').onclick = async () => {
-    picker.remove();
-    document.removeEventListener('mousedown', close);
-    const ok = await pywebview.api.open_minutes_in_claude_app(path, currentLang);
-    if (ok) showToast(currentLang === 'es'
-      ? 'Transcript copiado — pégalo en Claude'
-      : 'Transcript copied — paste it in Claude');
-    else showToast(noTranscript, 'error');
-  };
+  const ok = await pywebview.api.open_minutes_in_claude(path, currentLang);
+  if (!ok) showToast(noTranscript, 'error');
 }
 
 
@@ -2620,6 +3011,13 @@ function initResize() {
 
 let _pipelinePanelOpen = false;
 
+function _fmtEta(secs) {
+  secs = Math.round(secs);
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
 async function updatePipelineFooter() {
   const tab  = document.getElementById('pipeline-tab');
   const dot  = document.getElementById('pipeline-tab-dot');
@@ -2635,6 +3033,7 @@ async function updatePipelineFooter() {
     tab.classList.add('idle');
     dot.className = 'pipeline-tab-dot idle';
     body.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">${t('pipeline_idle') || 'Sin actividad'}</div>`;
+    _clearStatusView();
     return;
   }
 
@@ -2642,22 +3041,119 @@ async function updatePipelineFooter() {
   const anyRecording = jobs.some(j => j.stage === 'recording');
   dot.className = 'pipeline-tab-dot ' + (anyRecording ? 'recording' : 'processing');
 
-  body.innerHTML = jobs.map(j => {
-    const dotClass = j.stage === 'recording' ? 'recording' : 'processing';
-    const pctHtml  = j.pct != null ? `<span class="pipeline-job-pct">${j.pct}%</span>` : '';
-    const progHtml = j.pct != null
-      ? `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:${j.pct}%"></div></div>`
-      : '';
+  const cardsHtml = jobs.map(j => {
+    // ── En cola ──────────────────────────────────────────────
+    if (j.stage === 'queued') {
+      return `
+        <div class="pj-card pj-card--queued">
+          <div class="pj-head">
+            <div class="pj-eyebrow"><span class="pj-chev muted">&gt;</span><span class="pj-eyebrow-txt">${t('pipeline_queued') || 'en cola'}</span></div>
+            <div class="pj-title">${escHtml(j.title || j.label)}</div>
+          </div>
+        </div>`;
+    }
+
+    // ── Grabando ─────────────────────────────────────────────
+    if (j.stage === 'recording') {
+      return `
+        <div class="pj-card pj-card--recording">
+          <div class="pj-head">
+            <div class="pj-eyebrow"><span class="pj-rec-dot"></span><span class="pj-eyebrow-txt">REC</span></div>
+            <div class="pj-title">${escHtml(j.label)}</div>
+          </div>
+        </div>`;
+    }
+
+    // ── Procesando: stepper con columna de flujo ─────────────
+    const totalSteps = j.total_steps || 3;
+    const curStep = j.step || 1;
+    const curFrac = j.pct != null ? j.pct / 100 : 0.5;  // etapas indeterminadas cuentan como medio
+    const overall = Math.min(100, Math.round(((curStep - 1 + curFrac) / totalSteps) * 100));
+
+    const eyebrowBits = [];
+    if (j.time) eyebrowBits.push(escHtml(j.time));
+    eyebrowBits.push(`${t('nav_status') || 'En curso'}`.toUpperCase());
+    const eyebrow = eyebrowBits.join(' · ');
+    const titleHtml = `<div class="pj-title">${escHtml(j.title || j.label)}</div>`;
+
+    const steps = [
+      t('step_transcribing') || 'Transcribiendo',
+      t('step_minutes')      || 'Generando minutas',
+      t('step_actions')      || 'Generando acciones',
+    ];
+    const stagesHtml = steps.map((label, i) => {
+      const n = i + 1;
+      const isDone   = n < curStep;
+      const isActive = n === curStep;
+      const state = isDone ? 'done' : isActive ? 'active' : 'pending';
+
+      let barHtml = '';
+      if (isDone) {
+        barHtml = `<div class="pj-bar"><div class="pj-bar-fill done" style="width:100%"></div></div>`;
+      } else if (isActive && j.pct != null) {
+        barHtml = `<div class="pj-bar"><div class="pj-bar-fill active" style="width:${j.pct}%"></div></div>`;
+      } else if (isActive) {
+        barHtml = `<div class="pj-bar"><div class="pj-bar-fill shimmer"></div></div>`;
+      } else {
+        barHtml = `<div class="pj-bar"></div>`;
+      }
+      let etaHtml = '';
+      if (isActive && j.pct != null && j.pct > 3 && j.step_started) {
+        const elapsed = Date.now() / 1000 - j.step_started;
+        const remaining = elapsed * (100 - j.pct) / j.pct;
+        if (remaining > 2 && remaining < 3600) etaHtml = `<span class="pj-stage-eta">~${_fmtEta(remaining)}</span>`;
+      }
+      const rightHtml = isDone
+        ? `<span class="pj-stage-tick">✓</span>`
+        : (isActive && j.pct != null ? `${etaHtml}<span class="pj-stage-pct">${j.pct}%</span>` : '');
+
+      return `
+        <div class="pj-stage ${state}">
+          <span class="pj-chev">&gt;</span>
+          <div class="pj-stage-body">
+            <div class="pj-stage-row">
+              <span class="pj-stage-label">${escHtml(label)}</span>
+              ${rightHtml}
+            </div>
+            ${barHtml}
+          </div>
+        </div>`;
+    }).join('');
+
     return `
-      <div class="pipeline-job-card">
-        <div class="pipeline-job-header">
-          <span class="pipeline-job-dot ${dotClass}"></span>
-          <span class="pipeline-job-label">${escHtml(j.label)}</span>
-          ${pctHtml}
+      <div class="pj-card pj-card--active">
+        <div class="pj-head">
+          <div class="pj-eyebrow"><span class="pj-live-dot"></span><span class="pj-eyebrow-txt">${eyebrow}</span></div>
+          ${titleHtml}
         </div>
-        ${progHtml}
+        <div class="pj-flow" style="--flow: ${overall}%">
+          <div class="pj-spine"><div class="pj-spine-fill" style="height:${overall}%"></div></div>
+          <div class="pj-stages">${stagesHtml}</div>
+        </div>
       </div>`;
   }).join('');
+
+  body.innerHTML = cardsHtml;
+
+  // Actualizar vista "En curso" si está abierta
+  const statusBody = document.getElementById('status-view-body');
+  if (statusBody) statusBody.innerHTML = cardsHtml;
+
+  // Dot indicador en el nav
+  const navDot = document.getElementById('nav-status-dot');
+  if (navDot) navDot.classList.toggle('hidden', !jobs.length);
+}
+
+// Actualizar vista "En curso" cuando no hay jobs
+function _clearStatusView() {
+  const statusBody = document.getElementById('status-view-body');
+  if (statusBody) statusBody.innerHTML =
+    `<div class="status-idle">
+       <div class="status-idle-mark">&gt;</div>
+       <div class="status-idle-txt">${t('status_idle') || 'Sin actividad'}</div>
+     </div>`;
+  const navDot = document.getElementById('nav-status-dot');
+  if (navDot) navDot.classList.add('hidden');
 }
 
 function togglePipelinePanel() {

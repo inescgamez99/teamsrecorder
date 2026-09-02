@@ -18,10 +18,39 @@ def _get_outlook():
     return win32com.client.Dispatch('Outlook.Application')
 
 
-def find_meeting_participants(recording_time: datetime, window_minutes: int = 15) -> list[dict]:
+def _norm_subject(s: str) -> str:
+    """Normaliza un asunto para comparar: minúsculas, sin puntuación ni espacios extra."""
+    s = (s or '').lower()
+    s = re.sub(r'[_\-|]+', ' ', s)
+    s = re.sub(r'[^\w\s]', '', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def _name_score(meeting_name: str, subject: str) -> float:
+    """Similitud entre el nombre detectado de la reunión y el asunto del evento (0..1)."""
+    import difflib
+    a, b = _norm_subject(meeting_name), _norm_subject(subject)
+    if not a or not b:
+        return 0.0
+    if a in b or b in a:
+        return 1.0
+    # coincidencia por palabras significativas (>3 letras) + ratio de secuencia
+    wa = {w for w in a.split() if len(w) > 3}
+    wb = {w for w in b.split() if len(w) > 3}
+    overlap = len(wa & wb) / max(1, len(wa)) if wa else 0.0
+    ratio = difflib.SequenceMatcher(None, a, b).ratio()
+    return max(overlap, ratio)
+
+
+def find_meeting_participants(recording_time: datetime, meeting_name: str = None,
+                             window_minutes: int = 15) -> list[dict]:
     """
-    Busca en el calendario de Outlook la reunión más cercana a recording_time
-    y devuelve la lista de participantes con nombre y email.
+    Busca en el calendario de Outlook la reunión que corresponde a la grabación y
+    devuelve la lista de participantes (nombre + email).
+
+    Empareja por NOMBRE (asunto del evento vs. nombre detectado de la reunión) y,
+    como respaldo, por proximidad de HORA. El nombre gana si hay coincidencia
+    razonable — más fiable con reuniones seguidas o cuando la hora no cuadra exacta.
     """
     try:
         outlook = _get_outlook()
@@ -41,32 +70,53 @@ def find_meeting_participants(recording_time: datetime, window_minutes: int = 15
         )
         filtered = items.Restrict(filter_str)
 
-        participants = []
-        best_item = None
-        min_diff = timedelta(hours=3)
-
+        # Recopilar candidatos con su diferencia de hora
+        candidates = []  # (item, diff_segundos)
         for item in filtered:
             try:
                 item_start = item.Start
                 if hasattr(item_start, 'year'):
                     diff = abs(item_start - recording_time.replace(tzinfo=None))
-                    if diff < min_diff:
-                        min_diff = diff
-                        best_item = item
+                    candidates.append((item, diff))
             except Exception:
                 continue
 
-        if best_item:
-            log.info(f"Reunión encontrada en calendario: {best_item.Subject}")
-            for rec in best_item.Recipients:
-                try:
-                    participants.append({
-                        'name': rec.Name,
-                        'email': rec.Address,
-                    })
-                except Exception:
-                    pass
+        if not candidates:
+            return []
 
+        best_item = None
+
+        # 1) Emparejar por nombre si lo tenemos
+        if meeting_name:
+            scored = []
+            for item, diff in candidates:
+                try:
+                    subj = item.Subject or ''
+                except Exception:
+                    subj = ''
+                score = _name_score(meeting_name, subj)
+                if score >= 0.5:
+                    scored.append((score, diff, item))
+            if scored:
+                # mejor score; a igualdad, el más cercano en hora
+                scored.sort(key=lambda x: (-x[0], x[1]))
+                best_item = scored[0][2]
+                log.info(f"Reunión emparejada por nombre (score {scored[0][0]:.2f}): {best_item.Subject}")
+
+        # 2) Respaldo: el más cercano en hora
+        if best_item is None:
+            best_item = min(candidates, key=lambda x: x[1])[0]
+            log.info(f"Reunión emparejada por hora: {best_item.Subject}")
+
+        participants = []
+        for rec in best_item.Recipients:
+            try:
+                participants.append({
+                    'name': rec.Name,
+                    'email': rec.Address,
+                })
+            except Exception:
+                pass
         return participants
     except Exception as e:
         log.warning(f"No se pudieron obtener participantes de Outlook: {e}")

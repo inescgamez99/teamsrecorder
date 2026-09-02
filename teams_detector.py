@@ -101,7 +101,7 @@ class TeamsCallDetector:
     def __init__(self, poll_interval=TEAMS_POLL_INTERVAL, required_confirmations=TEAMS_REQUIRED_CONFIRMATIONS):
         self._poll = poll_interval
         self._required          = required_confirmations              # polls para detectar inicio (2 = 6s)
-        self._required_end      = max(required_confirmations * 20, 40) # polls fin conservador (40 = 2min)
+        self._required_end      = max(required_confirmations * 10, 20) # polls fin conservador (20 = 1min)
         self._required_end_fast = 5   # polls fin rápido cuando título es genérico (5 = 15s)
         self._required_name_chg = max(required_confirmations * 5, 10)  # polls cambio de reunión (10 = 30s)
         self._in_call = False
