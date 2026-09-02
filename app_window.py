@@ -219,6 +219,57 @@ class AppAPI:
         acts = load_enriched(Path(path))
         return acts or []
 
+    def _find_transcript_file(self, md_path: Path) -> Path | None:
+        """Localiza el fichero de transcripción de una reunión."""
+        # 1) Copia junto a las notas: <stem>_transcript.txt
+        tpath = md_path.with_name(md_path.stem + '_transcript.txt')
+        if tpath.exists():
+            return tpath
+        # 2) Por prefijo de fecha/hora en minutes/ (por si se renombró)
+        m = re.match(r'(\d{8}_\d{4})_', md_path.stem)
+        if m:
+            cands = list(md_path.parent.glob(f"{m.group(1)}_*_transcript.txt"))
+            if cands:
+                return cands[0]
+        # 3) Fallback en recordings/processed y recordings/
+        m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+        if m:
+            y, mo, d, hh, mm = m.groups()
+            stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+            for folder in ('recordings/processed', 'recordings'):
+                fp = PROJECT_DIR / folder
+                if fp.exists():
+                    cands = list(fp.glob(f"{stem}*_transcript.txt"))
+                    if cands:
+                        return cands[0]
+        return None
+
+    def get_transcript(self, path: str) -> dict:
+        """Devuelve el texto de la transcripción y la ruta de su fichero."""
+        tpath = self._find_transcript_file(Path(path))
+        text = ''
+        if tpath and tpath.exists():
+            try:
+                text = tpath.read_text(encoding='utf-8')
+            except Exception as e:
+                log.warning(f"get_transcript: {e}")
+        return {'text': text, 'path': str(tpath) if tpath else ''}
+
+    def reveal_in_explorer(self, file_path: str) -> bool:
+        """Abre el Explorador de Windows con el fichero seleccionado."""
+        try:
+            p = Path(file_path)
+            if not p.exists():
+                return False
+            if os.name == 'nt':
+                subprocess.Popen(f'explorer /select,"{p}"')
+            else:
+                subprocess.Popen(['xdg-open', str(p.parent)])
+            return True
+        except Exception as e:
+            log.warning(f"reveal_in_explorer: {e}")
+            return False
+
     def pick_folder(self) -> str:
         """Abre el explorador de carpetas nativo de Windows. Devuelve la ruta o ''."""
         try:

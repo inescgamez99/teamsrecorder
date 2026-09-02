@@ -44,6 +44,7 @@ const T = {
     sticky_add: 'Añadir post-it', sticky_min: 'Minimizar', sticky_del: 'Eliminar', sticky_ph: 'Escribe aquí...',
     copy_note: 'Copiar nota', copied: 'Nota copiada al portapapeles', copy_empty: 'No hay nota que copiar', copy_failed: 'No se pudo copiar',
     more_actions: 'Más acciones', export_html: 'Exportar a HTML', open_in_claude: 'Abrir en Claude', send_email: 'Enviar por email',
+    tab_transcript: 'Transcripción', open_transcript_loc: 'Abrir ubicación del archivo', no_transcript_file: 'No hay transcripción disponible para esta reunión.', open_transcript_failed: 'No se pudo abrir la ubicación del archivo.',
     trash_desc: 'Las reuniones eliminadas se guardan aquí. Puedes recuperarlas o borrarlas definitivamente.',
     trash_empty: 'La papelera está vacía.',
     trash_recover: 'Recuperar', trash_delete_forever: 'Borrar definitivamente',
@@ -224,6 +225,7 @@ const T = {
     sticky_add: 'Add sticky note', sticky_min: 'Minimize', sticky_del: 'Delete', sticky_ph: 'Write here...',
     copy_note: 'Copy note', copied: 'Note copied to clipboard', copy_empty: 'Nothing to copy', copy_failed: 'Could not copy',
     more_actions: 'More actions', export_html: 'Export to HTML', open_in_claude: 'Open in Claude', send_email: 'Send by email',
+    tab_transcript: 'Transcript', open_transcript_loc: 'Open file location', no_transcript_file: 'No transcript available for this meeting.', open_transcript_failed: 'Could not open the file location.',
     trash_desc: 'Deleted meetings are kept here. You can recover them or delete them permanently.',
     trash_empty: 'Trash is empty.',
     trash_recover: 'Recover', trash_delete_forever: 'Delete permanently',
@@ -812,6 +814,33 @@ function startRenameMeeting() {
   input.addEventListener('blur', () => finish(true));
 }
 
+// ── Transcripción ────────────────────────────────────────────────────────────
+let _transcriptPath = '';
+
+async function _loadTranscript(path) {
+  const body = document.getElementById('transcript-body');
+  const btn = document.getElementById('btn-open-transcript');
+  if (!body) return;
+  let res;
+  try { res = await pywebview.api.get_transcript(path); } catch (_) { res = null; }
+  if (res && res.text) {
+    body.textContent = res.text;
+    _transcriptPath = res.path || '';
+    if (btn) btn.style.display = _transcriptPath ? '' : 'none';
+  } else {
+    body.innerHTML = `<em>${t('no_transcript_file')}</em>`;
+    _transcriptPath = '';
+    if (btn) btn.style.display = 'none';
+  }
+}
+
+async function openTranscriptLocation() {
+  if (!_transcriptPath) return;
+  let ok = false;
+  try { ok = await pywebview.api.reveal_in_explorer(_transcriptPath); } catch (_) {}
+  if (!ok) showToast(t('open_transcript_failed'));
+}
+
 // ── Copiar nota ──────────────────────────────────────────────────────────────
 
 function copyNote() {
@@ -1074,6 +1103,7 @@ async function openMeeting(path) {
         <button class="detail-tab" id="tab-actions" data-tab="actions">
           ${t('tab_actions')} ${pendingCount > 0 ? `<span class="tab-badge">${pendingCount}</span>` : ''}
         </button>
+        <button class="detail-tab" id="tab-transcript" data-tab="transcript">${t('tab_transcript')}</button>
       </div>
       <div class="minutes-section" id="section-notes">
         <div class="minutes-content">${minutesHtml ? sanitizeHtml(minutesHtml) : `<em>${t('no_minutes')}</em>`}</div>
@@ -1086,6 +1116,13 @@ async function openMeeting(path) {
         </div>
         <div id="add-action-form" class="add-action-form" style="display:none"></div>
         <div id="meeting-actions"></div>
+      </div>
+      <div class="transcript-section hidden" id="section-transcript">
+        <div class="transcript-header">
+          <div class="section-label">${t('tab_transcript')}</div>
+          <button class="btn btn-ghost btn-sm" id="btn-open-transcript" style="margin-left:auto;display:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3.5l2 2H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/></svg>${t('open_transcript_loc')}</button>
+        </div>
+        <div class="transcript-body" id="transcript-body"><div class="loading">${t('loading')}</div></div>
       </div>
     </div>`;
 
@@ -1123,9 +1160,13 @@ async function openMeeting(path) {
       const which = tab.dataset.tab;
       document.getElementById('section-notes').classList.toggle('hidden', which !== 'notes');
       document.getElementById('section-actions').classList.toggle('hidden', which !== 'actions');
+      const tsec = document.getElementById('section-transcript');
+      if (tsec) tsec.classList.toggle('hidden', which !== 'transcript');
       panel.scrollTo({ top: 0, behavior: 'smooth' });
+      if (which === 'transcript') _loadTranscript(path);
     });
   });
+  document.getElementById('btn-open-transcript')?.addEventListener('click', () => openTranscriptLocation());
 
   document.getElementById('btn-add-action')?.addEventListener('click', () => toggleAddActionForm(path));
 
