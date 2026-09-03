@@ -31,6 +31,9 @@ _action_runs: dict = {}
 # Estado de regeneración de minutas: path -> {pct, stage_key, done, error}
 _regen_runs: dict = {}
 
+# Estado de importaciones de transcript: run_id -> {pct, stage, done, error, path}
+_import_runs: dict = {}
+
 # Watchers para acciones completadas desde terminal externo
 _terminal_watchers: dict = {}       # (path, index) -> True
 _terminal_completions: list = []    # [{path, index, title}] pendientes de notificar a JS
@@ -368,8 +371,9 @@ class AppAPI:
     # ── Task board ────────────────────────────────────────────────────────────
 
     def get_tasks(self) -> dict:
-        """Returns all tasks + projects for the task board. Runs migration on first call."""
+        """Returns all tasks + projects + buckets for the task board. Runs migration on first call."""
         from tasks_store import get_tasks as _get, migrate_panel_actions
+        from buckets_store import get_buckets as _get_buckets
         migrate_panel_actions()
         tasks = _get()
         projects_file = PROJECT_DIR / 'projects.json'
@@ -380,19 +384,34 @@ class AppAPI:
                 projects = pdata.get('projects', [])
         except Exception:
             pass
-        return {'projects': projects, 'tasks': tasks}
+        return {'projects': projects, 'tasks': tasks, 'buckets': _get_buckets()}
+
+    def get_buckets(self) -> list:
+        from buckets_store import get_buckets as _get
+        return _get()
+
+    def save_buckets(self, buckets: list) -> bool:
+        from buckets_store import save_buckets as _save
+        return _save(buckets)
 
     def create_task(self, project_id: str, title: str, parent_id: str = '',
-                    assignee: str = '', deadline: str = '', priority: str = '') -> dict:
+                    assignee: str = '', deadline: str = '', priority: str = '',
+                    bucket_id: str = '', start_date: str = '', end_date: str = '',
+                    tags: list = None, view: str = '') -> dict:
         from tasks_store import create_task as _create
+        from buckets_store import get_first_bucket_id
         return _create(
             project_id=project_id,
             title=title,
             parent_id=parent_id or None,
             assignee=assignee or None,
-            deadline=deadline or None,
+            end_date=end_date or deadline or None,
+            start_date=start_date or None,
+            tags=tags or [],
             priority=priority or None,
+            bucket_id=bucket_id or get_first_bucket_id(),
             source='manual',
+            view=view or None,
         )
 
     def update_task(self, task_id: str, fields: dict) -> bool:
@@ -439,7 +458,8 @@ class AppAPI:
             log.warning(f"_clear_action_in_panel: {e}")
 
     def move_action_to_panel(self, path: str, index: int,
-                             project_id: str, parent_id: str = '') -> str:
+                             project_id: str, parent_id: str = '',
+                             bucket_id: str = '') -> str:
         """Creates a task linked to a meeting action. Returns new task id."""
         from actions_enricher import get_actions_path
         from tasks_store import create_task as _create
@@ -467,6 +487,7 @@ class AppAPI:
             meeting_path=path,
             meeting_action_index=index,
             claude_executable=bool(action.get('claude_executable')),
+            bucket_id=bucket_id or None,
         )
         # Mark in_panel on the source action
         try:
@@ -750,14 +771,31 @@ class AppAPI:
             return False
 
     def get_pipeline_status(self) -> dict:
-        """Lee el estado del pipeline (grabación/transcripción) escrito por el daemon."""
+        """Lee el estado del pipeline (daemon + importaciones en curso)."""
+        jobs = []
         try:
             p = PROJECT_DIR / '.pipeline_status.json'
             if p.exists():
-                return json.loads(p.read_text(encoding='utf-8'))
+                jobs = json.loads(p.read_text(encoding='utf-8')).get('jobs', [])
         except Exception:
             pass
-        return {'jobs': []}
+
+        _stage_labels = {
+            'reading':    'Importando transcript...',
+            'generating': 'Generando minutas...',
+            'saving':     'Guardando minutas...',
+            'html':       'Exportando HTML...',
+            'actions':    'Generando acciones...',
+        }
+        for state in _import_runs.values():
+            if state.get('done'):
+                continue
+            stage = state.get('stage', '')
+            pct   = state.get('pct', 0)
+            label = _stage_labels.get(stage, 'Importando transcript...')
+            jobs.append({'stage': 'processing', 'label': label, 'pct': pct})
+
+        return {'jobs': jobs}
 
     def get_navigate_request(self) -> str:
         """Lee y elimina .app_navigate.txt; devuelve la ruta o '' si no hay nada."""
@@ -1173,6 +1211,151 @@ class AppAPI:
     def get_regen_status(self, path: str) -> dict:
         """Devuelve el progreso de una regeneración en curso: {pct, stage, done, error}."""
         return _regen_runs.get(path, {'pct': 0, 'stage': '', 'done': False, 'error': ''})
+
+    def import_transcript(self) -> dict:
+        """Abre selector de .txt, genera minutas y acciones a partir del transcript importado."""
+        txt_path_str = self.pick_file(['Text Files (*.txt)', 'All files (*.*)'])
+        if not txt_path_str:
+            return {'ok': False}
+
+        txt_path = Path(txt_path_str)
+        try:
+            transcript_text = txt_path.read_text(encoding='utf-8')
+        except Exception as e:
+            log.error(f"import_transcript: read failed: {e}")
+            return {'ok': False, 'error': str(e)}
+
+        if not transcript_text.strip():
+            return {'ok': False, 'error': 'empty'}
+
+        run_id = str(uuid.uuid4())
+        _prune_runs(_import_runs)
+        _import_runs[run_id] = {'pct': 5, 'stage': 'reading', 'done': False, 'error': '', 'path': ''}
+
+        def _run():
+            import time as _time
+            from minutes_generator import generate_minutes, extract_title_from_minutes, save_minutes
+            from html_exporter import export_to_html
+            from actions_enricher import enrich_and_save
+            from storage import get_minutes_path
+
+            state = _import_runs[run_id]
+
+            ticker_active = [True]
+            def _tick():
+                while ticker_active[0] and state['pct'] < 80:
+                    _time.sleep(3)
+                    if ticker_active[0] and state['pct'] < 80:
+                        state['pct'] = min(80, state['pct'] + 1)
+            threading.Thread(target=_tick, daemon=True).start()
+
+            try:
+                ts = datetime.now().strftime('%Y-%m-%d_%H-%M')
+                fake_wav = RECORDINGS_DIR / f"{ts}_imported_{run_id[:6]}.wav"
+
+                state['pct'] = 15
+                state['stage'] = 'generating'
+                raw = generate_minutes(transcript_text, fake_wav, language='auto')
+                ticker_active[0] = False
+
+                if not raw:
+                    state['error'] = 'Claude returned empty'
+                    state['done'] = True
+                    return
+
+                state['pct'] = 85
+                state['stage'] = 'saving'
+                title, content = extract_title_from_minutes(raw)
+                minutes_path = get_minutes_path(fake_wav, title)
+                save_minutes(content, minutes_path)
+
+                try:
+                    transcript_copy = minutes_path.with_name(minutes_path.stem + '_transcript.txt')
+                    transcript_copy.write_text(transcript_text, encoding='utf-8')
+                except Exception as e:
+                    log.warning(f"import_transcript: transcript copy: {e}")
+
+                state['pct'] = 92
+                state['stage'] = 'html'
+                try:
+                    export_to_html(minutes_path, title, open_browser=False)
+                except Exception as e:
+                    log.warning(f"import_transcript HTML: {e}")
+
+                state['pct'] = 97
+                state['stage'] = 'actions'
+                enrich_and_save(minutes_path, PROJECT_DIR.parent)
+
+                state['pct'] = 100
+                state['stage'] = 'done'
+                state['done'] = True
+                state['path'] = str(minutes_path)
+
+            except Exception as e:
+                ticker_active[0] = False
+                state['error'] = str(e)
+                state['done'] = True
+                log.error(f"import_transcript thread: {e}")
+
+        threading.Thread(target=_run, daemon=True, name='ImportTranscript').start()
+        return {'ok': True, 'run_id': run_id}
+
+    def get_import_status(self, run_id: str) -> dict:
+        """Devuelve el progreso de una importación en curso: {pct, stage, done, error, path}."""
+        return _import_runs.get(run_id, {'pct': 0, 'stage': '', 'done': False, 'error': '', 'path': ''})
+
+    def export_transcript_file(self, path: str) -> str:
+        """Abre un diálogo Guardar Como y exporta el transcript de la reunión al destino elegido.
+        Devuelve 'ok', 'cancelled', 'no_transcript' o 'error'."""
+        md_path = Path(path)
+
+        # Buscar el transcript: primero copia en minutes/, luego recordings/
+        transcript_text = ''
+        minutes_transcript = md_path.with_name(md_path.stem + '_transcript.txt')
+        if minutes_transcript.exists():
+            try:
+                transcript_text = minutes_transcript.read_text(encoding='utf-8')
+            except Exception:
+                pass
+
+        if not transcript_text:
+            m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+            if m:
+                y, mo, d, hh, mm = m.groups()
+                stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+                for folder in [RECORDINGS_DIR / 'processed', RECORDINGS_DIR]:
+                    if not folder.exists():
+                        continue
+                    candidates = list(folder.glob(f"{stem}*_transcript.txt"))
+                    if candidates:
+                        try:
+                            transcript_text = candidates[0].read_text(encoding='utf-8')
+                        except Exception:
+                            pass
+                        break
+
+        if not transcript_text:
+            return 'no_transcript'
+
+        default_name = md_path.stem + '_transcript.txt'
+        try:
+            import webview
+            wins = webview.windows
+            if not wins:
+                return 'error'
+            result = wins[0].create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=default_name,
+                file_types=['Text Files (*.txt)', 'All files (*.*)'],
+            )
+            if not result:
+                return 'cancelled'
+            dest = result[0] if isinstance(result, (list, tuple)) else result
+            Path(dest).write_text(transcript_text, encoding='utf-8')
+            return 'ok'
+        except Exception as e:
+            log.error(f"export_transcript_file: {e}")
+            return 'error'
 
     def execute_action_panel(self, path: str, index: int,
                              working_dir: str = '', prompt_override: str = '') -> str:

@@ -18,6 +18,10 @@ CALL_TITLE_KEYWORDS = [
 _TEAMS_GENERIC_PAGES = {
     'microsoft teams', 'teams', 'calendar', 'chat', 'activity',
     'calls', 'files', 'apps', 'help', '', 'copilot',
+    # Teams app tabs that trigger false positives
+    'amethyst', 'planner', 'tasks', 'viva', 'loop', 'whiteboard',
+    'sharepoint', 'forms', 'power apps', 'power bi', 'stream',
+    'wiki', 'notes', 'shifts', 'approvals', 'praise',
 }
 
 
@@ -30,16 +34,21 @@ def _teams_pids() -> list[int]:
         return []
 
 
-def _check_window_titles(pids: list[int]) -> tuple[bool, str | None]:
+def _check_window_titles(pids: list[int]) -> tuple[bool, bool, str | None]:
+    """Returns (classic_match, teams2_match, meeting_name).
+    classic_match: keyword found ('in a call', etc.) — reliable alone.
+    teams2_match: pipe-format title found — requires audio to avoid false
+                  positives from Teams app tabs (Planner, Amethyst, etc.)."""
     try:
         import win32gui
         import win32process
 
         meeting_name = None
-        found = False
+        classic_match = False
+        teams2_match = False
 
         def cb(hwnd, _):
-            nonlocal found, meeting_name
+            nonlocal classic_match, teams2_match, meeting_name
             try:
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
                 if pid not in pids:
@@ -49,9 +58,9 @@ def _check_window_titles(pids: list[int]) -> tuple[bool, str | None]:
                     return
                 title_lower = raw.lower()
 
-                # Teams classic: keyword match
+                # Teams classic: keyword match — very reliable
                 if any(kw in title_lower for kw in CALL_TITLE_KEYWORDS):
-                    found = True
+                    classic_match = True
                     if '|' in raw:
                         candidate = raw.split('|')[0].strip()
                         if candidate.lower() not in _TEAMS_GENERIC_PAGES:
@@ -59,22 +68,22 @@ def _check_window_titles(pids: list[int]) -> tuple[bool, str | None]:
                     return
 
                 # Teams 2.0: "<Meeting> | <Org> [| email] | Microsoft Teams"
-                # Requiere 2+ pipes para evitar falsos positivos con chats
-                # en ventana propia ("Persona | MS Teams", 1 pipe).
+                # Requiere 2+ pipes. Propenso a falsos positivos con tabs de
+                # apps (Planner, Amethyst…) — el caller exige audio activo.
                 if raw.endswith('Microsoft Teams') and raw.count('|') >= 2:
                     parts = [p.strip() for p in raw.split('|')]
                     first = parts[0].strip()
                     if first.lower() not in _TEAMS_GENERIC_PAGES:
-                        found = True
+                        teams2_match = True
                         if meeting_name is None:
                             meeting_name = first
             except Exception:
                 pass
 
         win32gui.EnumWindows(cb, None)
-        return found, meeting_name
+        return classic_match, teams2_match, meeting_name
     except Exception:
-        return False, None
+        return False, False, None
 
 
 def _check_audio_session(pids: list[int]) -> bool:
@@ -89,11 +98,33 @@ def _check_audio_session(pids: list[int]) -> bool:
         return False
 
 
+def _check_mic_session(pids: list[int]) -> bool:
+    """Detecta si Teams está capturando micrófono activamente.
+    Más fiable que la sesión de render para Teams 2.0 (WebRTC usa WASAPI para captura aunque no para playback)."""
+    try:
+        from pycaw.pycaw import AudioUtilities, IAudioSessionManager2, AudioSession
+        from comtypes import CLSCTX_ALL
+        mic = AudioUtilities.GetMicrophone()
+        interface = mic.Activate(IAudioSessionManager2._iid_, CLSCTX_ALL, None)
+        manager = interface.QueryInterface(IAudioSessionManager2)
+        enumerator = manager.GetSessionEnumerator()
+        for i in range(enumerator.GetCount()):
+            try:
+                s = AudioSession(enumerator.GetSession(i))
+                if s.Process and s.Process.pid in pids and s.State == 1:
+                    return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
 def get_current_meeting_name() -> str | None:
     pids = _teams_pids()
     if not pids:
         return None
-    _, name = _check_window_titles(pids)
+    _, _, name = _check_window_titles(pids)
     return name
 
 
@@ -101,7 +132,7 @@ class TeamsCallDetector:
     def __init__(self, poll_interval=TEAMS_POLL_INTERVAL, required_confirmations=TEAMS_REQUIRED_CONFIRMATIONS):
         self._poll = poll_interval
         self._required          = required_confirmations              # polls para detectar inicio (2 = 6s)
-        self._required_end      = max(required_confirmations * 20, 40) # polls fin conservador (40 = 2min)
+        self._required_end      = max(required_confirmations * 5, 10)  # polls fin conservador (10 = 30s)
         self._required_end_fast = 5   # polls fin rápido cuando título es genérico (5 = 15s)
         self._required_name_chg = max(required_confirmations * 5, 10)  # polls cambio de reunión (10 = 30s)
         self._in_call = False
@@ -112,6 +143,8 @@ class TeamsCallDetector:
         self._name_change_candidate: str | None = None
         self._name_change_streak = 0
         self._title_went_generic = False  # título volvió a genérico mientras en llamada
+        self._call_generation = 0
+        self._call_declined = False
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
@@ -125,6 +158,17 @@ class TeamsCallDetector:
     def in_call(self) -> bool:
         return self._in_call
 
+    @property
+    def call_generation(self) -> int:
+        return self._call_generation
+
+    @property
+    def call_declined(self) -> bool:
+        return self._call_declined
+
+    def set_declined(self):
+        self._call_declined = True
+
     def start(self):
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True, name='TeamsDetector')
@@ -133,6 +177,19 @@ class TeamsCallDetector:
 
     def stop(self):
         self._stop_event.set()
+
+    def reset_call_state(self):
+        """Resetea el estado de llamada. Llamar cuando el usuario rechaza grabar para que
+        el próximo ciclo de detección empiece limpio."""
+        self._in_call = False
+        self._call_streak = 0
+        self._call_streak_has_title = False
+        self._no_call_streak = 0
+        self._title_went_generic = False
+        self._name_change_candidate = None
+        self._name_change_streak = 0
+        self._current_meeting_name = None
+        log.info("Estado de llamada reseteado")
 
     def _loop(self):
         _com_initialized = False
@@ -152,7 +209,16 @@ class TeamsCallDetector:
                     title_active = False
                     if pids:
                         audio_active = _check_audio_session(pids)
-                        title_active, detected_name = _check_window_titles(pids)
+                        classic_match, teams2_match, detected_name = _check_window_titles(pids)
+                        # Para INICIAR detección: teams2_match requiere mic activo para evitar
+                        # falsos positivos de tabs de apps (Planner, Amethyst…).
+                        # Para MANTENER una llamada ya detectada: no exigimos mic (pycaw puede
+                        # perderlo momentáneamente con WebRTC) para evitar cortes falsos.
+                        if self._in_call:
+                            title_active = classic_match or teams2_match
+                        else:
+                            mic_active = _check_mic_session(pids) if teams2_match else False
+                            title_active = classic_match or (teams2_match and mic_active)
 
                     # Para INICIAR: título O audio. Audio solo cubre llamadas 1:1 en
                     # Teams 2.0 donde el título siempre es genérico. Para evitar falsos
@@ -178,6 +244,7 @@ class TeamsCallDetector:
 
                     required_now = self._required if self._call_streak_has_title else self._required * 3
                     if not self._in_call and self._call_streak >= required_now:
+                        self._call_generation += 1
                         self._in_call = True
                         self._title_went_generic = False
                         self._call_streak_has_title = False
@@ -233,6 +300,7 @@ class TeamsCallDetector:
 
                     if self._in_call and (fast_end or slow_end):
                         self._in_call = False
+                        self._call_declined = False
                         self._title_went_generic = False
                         self._current_meeting_name = None
                         self._name_change_candidate = None

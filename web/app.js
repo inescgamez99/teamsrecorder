@@ -21,7 +21,14 @@ let currentPath          = null;
 let allMeetings          = [];
 let allPending           = [];
 let allProjects          = [];
-let _taskData = { projects: [], tasks: [] };
+let _taskData = { projects: [], tasks: [], buckets: [] };
+let _boardView = false;
+let _buckets = [];
+let _dragTaskId = null;
+let _dragBucketId = null;
+let _filterProjectId = null;  // null = todos
+let _sortBy = null;           // null | 'end_date' | 'priority' | 'title' | 'tag'
+let _groupBy = 'bucket';     // 'bucket' | 'priority' | 'assignee' | 'due_date'
 let currentSidebarMode   = 'days';
 let searchTimeout        = null;
 
@@ -162,7 +169,11 @@ const T = {
     // Task board
     task_col_name: 'Nombre de tarea', task_col_status: 'Estado',
     task_col_assignee: 'Responsable', task_col_deadline: 'Fecha límite',
-    task_col_priority: 'Prioridad',
+    task_col_start_date: 'Fecha inicio', task_col_end_date: 'Fecha fin',
+    task_col_tags: 'Etiquetas', task_col_priority: 'Prioridad',
+    task_col_dates: 'Fechas', tags_placeholder: 'Añadir etiqueta…',
+    task_filter_all: 'Todos',
+    view_list: 'Vista lista', view_board: 'Vista tablero', refresh: 'Actualizar',
     status_not_started: 'Sin empezar', status_in_progress: 'En curso', status_done: 'Completado',
     status_blocked: 'Bloqueada', status_paused: 'En pausa', status_pending_feedback: 'Pend. feedback',
     task_col_description: 'Descripción', desc_placeholder: 'Añade una descripción...',
@@ -170,8 +181,12 @@ const T = {
     priority_none: '— Prioridad', priority_high: 'Alta', priority_medium: 'Media', priority_low: 'Baja',
     task_add_task: '+ Nueva tarea', task_add_subitem: '+ Nuevo subitem',
     task_new_ph: 'Nombre de la tarea…', task_empty: 'Sin tareas. Usa "+ Nueva tarea" para añadir.',
-    task_no_project: 'Sin proyecto',
+    task_no_project: 'Sin proyecto', bucket_label: 'Columna',
+    bucket_add: '+ Columna', bucket_new_name: 'Nueva columna', bucket_name_prompt: 'Nombre de la nueva columna:',
+    sort_placeholder: 'Ordenar…', sort_end_date: 'Por fecha límite', sort_priority: 'Por prioridad', sort_title: 'Por título', sort_tag: 'Por etiqueta',
+    btn_save_task: 'Guardar', last_edited_label: 'Guardado', last_edited_never: 'Sin cambios guardados',
     modal_move_title: 'Añadir al panel', modal_project_label: 'Proyecto',
+    modal_view_label: 'Añadir a', modal_view_list: 'Lista', modal_view_board: 'Kanban',
     modal_parent_label: 'Como sub-tarea de (opcional)',
     modal_parent_none: 'Tarea nueva (nivel raíz)', modal_confirm: 'Añadir al panel',
     task_from_meeting: 'de reunión',
@@ -182,6 +197,14 @@ const T = {
     btn_edit: 'Editar',
     edit_notes_hint: 'Edita las notas directamente y guarda. Los cambios se usarán en HTML y email.',
     notes_saved: 'Notas guardadas',
+    import_transcript_tooltip: 'Importar transcript (.txt) y generar notas',
+    import_transcript_processing: 'Generando notas del transcript...',
+    import_transcript_done: 'Notas generadas del transcript importado',
+    import_transcript_error: 'Error al importar el transcript',
+    export_transcript_btn: 'Exportar transcript',
+    export_transcript_no_file: 'No hay transcript guardado para esta reunión',
+    export_transcript_done: 'Transcript exportado',
+    export_transcript_error: 'Error al exportar el transcript',
     fmt_bold: 'Negrita', fmt_italic: 'Cursiva', fmt_h2: 'Título', fmt_h3: 'Subtítulo', fmt_text: 'Texto normal', fmt_list: 'Lista',
     fmt_table: 'Tabla', table_need_cursor: 'Pon el cursor dentro de una tabla',
     tbl_insert: 'Insertar tabla', tbl_addrow: 'Añadir fila', tbl_delrow: 'Eliminar fila',
@@ -326,7 +349,11 @@ const T = {
     // Task board
     task_col_name: 'Task name', task_col_status: 'Status',
     task_col_assignee: 'Assignee', task_col_deadline: 'Deadline',
-    task_col_priority: 'Priority',
+    task_col_start_date: 'Start date', task_col_end_date: 'End date',
+    task_col_tags: 'Tags', task_col_priority: 'Priority',
+    task_col_dates: 'Dates', tags_placeholder: 'Add tag…',
+    task_filter_all: 'All',
+    view_list: 'List view', view_board: 'Board view', refresh: 'Refresh',
     status_not_started: 'Not started', status_in_progress: 'In progress', status_done: 'Done',
     status_blocked: 'Blocked', status_paused: 'Paused', status_pending_feedback: 'Pending feedback',
     task_col_description: 'Description', desc_placeholder: 'Add a description...',
@@ -334,8 +361,12 @@ const T = {
     priority_none: '— Priority', priority_high: 'High', priority_medium: 'Medium', priority_low: 'Low',
     task_add_task: '+ New task', task_add_subitem: '+ New sub-item',
     task_new_ph: 'Task name…', task_empty: 'No tasks. Use "+ New task" to add one.',
-    task_no_project: 'No project',
+    task_no_project: 'No project', bucket_label: 'Column',
+    bucket_add: '+ Column', bucket_new_name: 'New column', bucket_name_prompt: 'New column name:',
+    sort_placeholder: 'Sort…', sort_end_date: 'By due date', sort_priority: 'By priority', sort_title: 'By title', sort_tag: 'By tag',
+    btn_save_task: 'Save', last_edited_label: 'Saved', last_edited_never: 'No changes saved',
     modal_move_title: 'Add to panel', modal_project_label: 'Project',
+    modal_view_label: 'Add to', modal_view_list: 'List', modal_view_board: 'Kanban',
     modal_parent_label: 'As sub-item of (optional)',
     modal_parent_none: 'New task (top level)', modal_confirm: 'Add to panel',
     task_from_meeting: 'from meeting',
@@ -346,6 +377,14 @@ const T = {
     btn_edit: 'Edit',
     edit_notes_hint: 'Edit the notes directly and save. Changes are used for HTML and email.',
     notes_saved: 'Notes saved',
+    import_transcript_tooltip: 'Import transcript (.txt) and generate notes',
+    import_transcript_processing: 'Generating notes from transcript...',
+    import_transcript_done: 'Notes generated from imported transcript',
+    import_transcript_error: 'Error importing transcript',
+    export_transcript_btn: 'Export transcript',
+    export_transcript_no_file: 'No transcript saved for this meeting',
+    export_transcript_done: 'Transcript exported',
+    export_transcript_error: 'Error exporting transcript',
     fmt_bold: 'Bold', fmt_italic: 'Italic', fmt_h2: 'Heading', fmt_h3: 'Subheading', fmt_text: 'Normal text', fmt_list: 'List',
     fmt_table: 'Table', table_need_cursor: 'Place the cursor inside a table',
     tbl_insert: 'Insert table', tbl_addrow: 'Add row', tbl_delrow: 'Delete row',
@@ -805,6 +844,7 @@ async function openMeeting(path) {
           <button class="action-icon-btn" id="btn-regenerate" title="${t('btn_regenerate')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg></button>
           <button class="action-icon-btn" id="btn-email" title="Email"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
           <button class="action-icon-btn action-icon-btn--text" id="btn-html" title="HTML">HTML</button>
+          <button class="action-icon-btn" id="btn-export-transcript" title="${t('export_transcript_btn')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
           <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
         </div>
       </div>
@@ -837,6 +877,7 @@ async function openMeeting(path) {
 
   document.getElementById('btn-email').addEventListener('click', () => sendEmail(path));
   document.getElementById('btn-html').addEventListener('click', () => openHtml(path));
+  document.getElementById('btn-export-transcript').addEventListener('click', () => exportTranscript(path));
   document.getElementById('btn-claude').addEventListener('click', () => openMinutesInClaude(path));
   document.getElementById('btn-regenerate').addEventListener('click', () => toggleRegenBar());
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
@@ -1148,6 +1189,33 @@ function _projectColor(project) {
 const STATUS_CYCLE   = ['not_started', 'in_progress', 'blocked', 'paused', 'pending_feedback', 'done'];
 const PRIORITY_CYCLE = [null, 'high', 'medium', 'low'];
 
+// Sync status ↔ bucket for default buckets only
+const STATUS_TO_BUCKET = {
+  not_started: 'pendiente', blocked: 'pendiente', paused: 'pendiente',
+  in_progress: 'en-progreso', pending_feedback: 'en-progreso',
+  done: 'hecho',
+};
+const BUCKET_TO_STATUS = {
+  pendiente: 'not_started', 'en-progreso': 'in_progress', hecho: 'done',
+};
+
+function _syncBucketFromStatus(task, newStatus) {
+  const targetBucket = STATUS_TO_BUCKET[newStatus];
+  if (!targetBucket) return;
+  if (!_buckets.some(b => b.id === targetBucket)) return; // only if bucket exists
+  if (task.bucket_id === targetBucket) return;
+  task.bucket_id = targetBucket;
+  pywebview.api.update_task(task.id, { bucket_id: targetBucket });
+}
+
+function _syncStatusFromBucket(task, newBucketId) {
+  const targetStatus = BUCKET_TO_STATUS[newBucketId];
+  if (!targetStatus) return;
+  if (task.status === targetStatus) return;
+  task.status = targetStatus;
+  pywebview.api.update_task(task.id, { status: targetStatus });
+}
+
 function _statusLabel(s)   { return t('status_' + (s || 'not_started')); }
 function _priorityLabel(p) { return p ? t('priority_' + p) : t('priority_none'); }
 function _statusCls(s)     { return s || 'not_started'; }
@@ -1158,13 +1226,165 @@ async function loadTaskBoard() {
   if (!body) return;
   body.innerHTML = `<div class="loading">${t('loading_actions')}</div>`;
   _taskData = await pywebview.api.get_tasks();
+  _buckets = _taskData.buckets || [];
+  // Tooltips i18n
+  document.getElementById('btn-view-list')?.setAttribute('title', t('view_list'));
+  document.getElementById('btn-view-board')?.setAttribute('title', t('view_board'));
+  document.querySelector('.task-board-header .btn-ghost')?.setAttribute('title', t('refresh'));
+  body.classList.toggle('is-board', _boardView);
   renderTaskBoard();
+}
+
+function setTaskView(view) {
+  _boardView = view === 'board';
+  document.getElementById('btn-view-list')?.classList.toggle('active', !_boardView);
+  document.getElementById('btn-view-board')?.classList.toggle('active', _boardView);
+  document.getElementById('task-board-body')?.classList.toggle('is-board', _boardView);
+  renderTaskBoard();
+}
+
+function _setSortBy(val) {
+  _sortBy = val || null;
+  renderKanbanBoard();
+}
+
+function _setGroupBy(val) {
+  _groupBy = val || 'bucket';
+  renderKanbanBoard();
+}
+
+function _getGroupByColumns(tasks) {
+  if (_groupBy === 'bucket') {
+    return _buckets.length ? _buckets : [{id:'pendiente', name:'Pendiente', color:'#6b7280', order:0}];
+  }
+  if (_groupBy === 'priority') {
+    const L = currentLang === 'en';
+    return [
+      {id:'urgent', name: L?'Urgent':'Urgente',          color:'#ef4444'},
+      {id:'high',   name: L?'High':'Alta',               color:'#f97316'},
+      {id:'medium', name: L?'Medium':'Media',            color:'#f59e0b'},
+      {id:'low',    name: L?'Low':'Baja',                color:'#3b82f6'},
+      {id:'none_p', name: L?'No priority':'Sin prioridad', color:'#6b7280'},
+    ];
+  }
+  if (_groupBy === 'assignee') {
+    const seen = new Set();
+    const cols = [];
+    tasks.forEach(t => {
+      if (t.assignee && !seen.has(t.assignee)) {
+        seen.add(t.assignee);
+        cols.push({id: t.assignee, name: t.assignee, color: '#8b5cf6'});
+      }
+    });
+    cols.push({id:'unassigned', name: currentLang==='en'?'Unassigned':'Sin asignar', color:'#6b7280'});
+    return cols;
+  }
+  if (_groupBy === 'due_date') {
+    const L = currentLang === 'en';
+    return [
+      {id:'overdue',   name: L?'Overdue':'Vencidas',      color:'#ef4444'},
+      {id:'today',     name: L?'Today':'Hoy',             color:'#f97316'},
+      {id:'this_week', name: L?'This week':'Esta semana', color:'#3b82f6'},
+      {id:'later',     name: L?'Later':'Más adelante',    color:'#10b981'},
+      {id:'no_date',   name: L?'No date':'Sin fecha',     color:'#6b7280'},
+    ];
+  }
+  return [];
+}
+
+function _getTaskColId(task, columns) {
+  if (_groupBy === 'bucket') {
+    const idSet = new Set(columns.map(c => c.id));
+    return (task.bucket_id && idSet.has(task.bucket_id)) ? task.bucket_id : columns[0].id;
+  }
+  if (_groupBy === 'priority') return task.priority || 'none_p';
+  if (_groupBy === 'assignee') return task.assignee || 'unassigned';
+  if (_groupBy === 'due_date') {
+    const d = _parseValidDate(task.end_date || task.deadline);
+    if (!d) return 'no_date';
+    const today = new Date(); today.setHours(0,0,0,0);
+    const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+    const nextWeek = new Date(today); nextWeek.setDate(today.getDate()+7);
+    if (d < today) return 'overdue';
+    if (d < tomorrow) return 'today';
+    if (d < nextWeek) return 'this_week';
+    return 'later';
+  }
+  return columns[0]?.id || '';
+}
+
+function _sortedColTasks(tasks) {
+  if (!_sortBy) return tasks;
+  return [...tasks].sort((a, b) => {
+    if (_sortBy === 'end_date') {
+      const da = _parseValidDate(a.end_date || a.deadline);
+      const db = _parseValidDate(b.end_date || b.deadline);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da - db;
+    }
+    if (_sortBy === 'priority') {
+      const o = { high: 0, medium: 1, low: 2 };
+      return (o[a.priority] ?? 3) - (o[b.priority] ?? 3);
+    }
+    if (_sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+    if (_sortBy === 'tag') return ((a.tags || [])[0] || '').localeCompare((b.tags || [])[0] || '');
+    return 0;
+  });
+}
+
+function renderFilterBar() {
+  const bar = document.getElementById('task-filter-bar');
+  if (!bar) return;
+  const { projects } = _taskData;
+  const allBtn = `<button class="task-filter-btn${_filterProjectId === null ? ' active' : ''}" onclick="_setFilter(null)">${t('task_filter_all')}</button>`;
+  const projBtns = (projects || []).map(p => {
+    const color = _projectColor(p);
+    const active = _filterProjectId === p.id ? ' active' : '';
+    return `<button class="task-filter-btn${active}" style="--f-color:${color}" onclick="_setFilter('${p.id}')">${escHtml(p.name)}</button>`;
+  }).join('');
+  const L = currentLang === 'en';
+  const boardControls = _boardView ? `
+    <div class="task-filter-actions">
+      <select class="task-groupby-select" onchange="_setGroupBy(this.value)" title="${L?'Group by':'Agrupar por'}">
+        <option value="bucket"${_groupBy==='bucket'?' selected':''}>${L?'Group: Bucket':'Agrupar: Columna'}</option>
+        <option value="priority"${_groupBy==='priority'?' selected':''}>${L?'Group: Priority':'Agrupar: Prioridad'}</option>
+        <option value="assignee"${_groupBy==='assignee'?' selected':''}>${L?'Group: Assignee':'Agrupar: Responsable'}</option>
+        <option value="due_date"${_groupBy==='due_date'?' selected':''}>${L?'Group: Due Date':'Agrupar: Fecha'}</option>
+      </select>
+      <select class="task-sort-select" onchange="_setSortBy(this.value)">
+        <option value="">${t('sort_placeholder')}</option>
+        <option value="end_date"${_sortBy==='end_date'?' selected':''}>${t('sort_end_date')}</option>
+        <option value="priority"${_sortBy==='priority'?' selected':''}>${t('sort_priority')}</option>
+        <option value="title"${_sortBy==='title'?' selected':''}>${t('sort_title')}</option>
+        <option value="tag"${_sortBy==='tag'?' selected':''}>${t('sort_tag')}</option>
+      </select>
+      ${_groupBy === 'bucket' ? `<button class="kanban-add-col-btn" onclick="_addBucket()">${t('bucket_add')}</button>` : ''}
+    </div>` : '';
+  bar.innerHTML = `<div class="task-filter-pills">${allBtn}${projBtns}</div>${boardControls}`;
+}
+
+function _setFilter(projectId) {
+  _filterProjectId = projectId;
+  renderFilterBar();
+  renderTaskBoard();
+}
+
+function _filteredTasks() {
+  const currentView = _boardView ? 'board' : 'list';
+  const tasks = (_taskData.tasks || []).filter(t => !t.view || t.view === currentView);
+  if (_filterProjectId === null) return tasks;
+  return tasks.filter(t => (t.project_id || 'none') === _filterProjectId);
 }
 
 function renderTaskBoard() {
   const body = document.getElementById('task-board-body');
   if (!body) return;
-  const { projects, tasks } = _taskData;
+  renderFilterBar();
+  if (_boardView) { renderKanbanBoard(); return; }
+  const { projects } = _taskData;
+  const tasks = _filteredTasks();
 
   const byProject = {};
   tasks.forEach(task => {
@@ -1173,9 +1393,11 @@ function renderTaskBoard() {
     byProject[pid].push(task);
   });
 
-  // La sección "Sin proyecto" se muestra siempre (aunque esté vacía) y va primero,
-  // para poder añadir/ver tareas no asociadas a ningún proyecto.
-  const sections = [{ id: 'none', name: t('task_no_project') }, ...projects];
+  const sections = _filterProjectId
+    ? (projects.find(p => p.id === _filterProjectId)
+        ? [projects.find(p => p.id === _filterProjectId)]
+        : [{ id: _filterProjectId, name: t('task_no_project') }])
+    : [{ id: 'none', name: t('task_no_project') }, ...projects];
 
   body.innerHTML = sections.map(p => _renderProjectSection(p, byProject[p.id] || [])).join('');
   _bindTaskBoardEvents();
@@ -1202,7 +1424,8 @@ function _renderProjectSection(project, projectTasks) {
         <span class="task-col-hdr">${t('task_col_name')}</span>
         <span class="task-col-hdr">${t('task_col_status')}</span>
         <span class="task-col-hdr">${t('task_col_assignee')}</span>
-        <span class="task-col-hdr">${t('task_col_deadline')}</span>
+        <span class="task-col-hdr">${t('task_col_start_date')}</span>
+        <span class="task-col-hdr">${t('task_col_end_date')}</span>
         <span class="task-col-hdr">${t('task_col_priority')}</span>
         <span></span>
       </div>
@@ -1225,8 +1448,6 @@ function _renderTaskRow(task, subitems, isSubitem) {
   const expandBtn = subitems.length
     ? `<button class="task-expand-btn open" data-expand="${task.id}">▶</button>`
     : `<button class="task-expand-btn placeholder" disabled>▶</button>`;
-  const srcTag = task.source === 'meeting' && task.meeting_path
-    ? `<button class="task-source-btn" data-goto-meeting="${escHtml(task.id)}">↗ ${t('task_from_meeting')}</button>` : '';
   const claudeBadge = task.claude_executable
     ? `<span class="task-claude-badge">✦ Claude</span>` : '';
   const subRows = subitems.map(s => _renderTaskRow(s, [], true)).join('');
@@ -1243,7 +1464,7 @@ function _renderTaskRow(task, subitems, isSubitem) {
         <input class="task-title-input${doneCls}" type="text" value="${escHtml(task.title)}"
                title="${escHtml(task.title)}"
                data-task-field="${task.id}:title" placeholder="${t('task_new_ph')}">
-        ${claudeBadge}${srcTag}
+        ${claudeBadge}
         <button class="task-row-detail" data-detail-task="${task.id}">···</button>
       </div>
       <div><select class="task-status-select ${_statusCls(task.status)}" data-status-task="${task.id}">
@@ -1251,8 +1472,10 @@ function _renderTaskRow(task, subitems, isSubitem) {
       </select></div>
       <div><input class="task-cell-input" type="text" value="${escHtml(task.assignee || '')}"
            placeholder="—" data-task-field="${task.id}:assignee"></div>
-      <div><input class="task-cell-input" type="text" value="${escHtml(task.deadline || '')}"
-           placeholder="—" data-task-field="${task.id}:deadline"></div>
+      <div><input class="task-cell-input task-date-input" type="date" value="${_toDateInput(task.start_date)}"
+           data-task-field="${task.id}:start_date" title="${t('task_col_start_date')}"></div>
+      <div><input class="task-cell-input task-date-input" type="date" value="${_toDateInput(task.end_date || task.deadline)}"
+           data-task-field="${task.id}:end_date" title="${t('task_col_end_date')}"></div>
       <div><button class="task-priority-btn ${_priorityCls(task.priority)}"
            data-priority-task="${task.id}">${_priorityLabel(task.priority)}</button></div>
       <button class="task-row-del" data-del-task="${task.id}" title="Eliminar">×</button>
@@ -1293,6 +1516,7 @@ function _bindTaskBoardEvents() {
       sel.className = 'task-status-select ' + _statusCls(next);
       document.querySelector(`[data-task-field="${id}:title"]`)?.classList.toggle('done', next === 'done');
       await pywebview.api.update_task(id, { status: next });
+      _syncBucketFromStatus(task, next);
       _refreshProjectCount(task.project_id);
       refreshPendingBadge();
     });
@@ -1312,13 +1536,16 @@ function _bindTaskBoardEvents() {
   });
 
   body.querySelectorAll('[data-task-field]').forEach(input => {
-    input.addEventListener('blur', async () => {
+    const saveInput = async () => {
       const [id, field] = input.dataset.taskField.split(':');
       const task = _taskData.tasks.find(t => t.id === id);
-      if (!task || task[field] === input.value) return;
-      task[field] = input.value;
-      await pywebview.api.update_task(id, { [field]: input.value });
-    });
+      const val = input.value || null;
+      if (!task || task[field] === val) return;
+      task[field] = val;
+      await pywebview.api.update_task(id, { [field]: val });
+      if (_boardView) renderKanbanBoard();
+    };
+    input.addEventListener(input.type === 'date' ? 'change' : 'blur', saveInput);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
   });
 
@@ -1336,6 +1563,10 @@ function _bindTaskBoardEvents() {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.delTask;
       const task = _taskData.tasks.find(t => t.id === id);
+      const msg = currentLang === 'en'
+        ? `Delete task "${task?.title || ''}"?`
+        : `¿Eliminar la tarea "${task?.title || ''}"?`;
+      if (!confirm(msg)) return;
       await pywebview.api.delete_task(id);
       _taskData.tasks = _taskData.tasks.filter(t => t.id !== id && t.parent_id !== id);
       document.getElementById('taskwrap-' + id)?.remove();
@@ -1384,7 +1615,7 @@ function _startAddTask(addRow) {
     if (committed) return; committed = true;
     const title = input.value.trim();
     if (!title) { renderTaskBoard(); return; }
-    const task = await pywebview.api.create_task(projectId, title, parentId);
+    const task = await pywebview.api.create_task(projectId, title, parentId, '', '', '', '', '', '', [], 'list');
     _taskData.tasks.push(task);
     renderTaskBoard();
     refreshPendingBadge();
@@ -1393,6 +1624,420 @@ function _startAddTask(addRow) {
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter')  { e.preventDefault(); commit(); }
     if (e.key === 'Escape') { input.value = ''; commit(); }
+  });
+}
+
+// ── Kanban board ──────────────────────────────────────────────────────────────
+
+function renderKanbanBoard() {
+  const body = document.getElementById('task-board-body');
+  if (!body) return;
+  const tasks = _filteredTasks();
+  const isVirtual = _groupBy !== 'bucket';
+  const columns = _getGroupByColumns(tasks);
+  body.innerHTML = `
+    <div class="kanban-board" id="kanban-board">
+      ${columns.map(col => _renderKanbanColumn(col, _sortedColTasks(tasks.filter(t => _getTaskColId(t, columns) === col.id)), isVirtual)).join('')}
+    </div>`;
+  _bindKanbanEvents();
+}
+
+function _renderKanbanColumn(col, colTasks, isVirtual = false) {
+  const cards = colTasks.map(t => _renderKanbanCard(t)).join('');
+  const colHeader = isVirtual
+    ? `<div class="kanban-col-header">
+        <span class="kanban-col-color-dot" style="background:${col.color};pointer-events:none"></span>
+        <span class="kanban-col-title">${escHtml(col.name)}</span>
+        <span class="kanban-col-count">${colTasks.length}</span>
+       </div>`
+    : `<div class="kanban-col-header" draggable="true"
+            ondragstart="_onColDragStart(event,'${col.id}')"
+            ondragend="_onColDragEnd()">
+        <span class="kanban-col-drag-handle">⠿</span>
+        <span class="kanban-col-color-dot" style="background:${col.color}"
+              data-color-bucket="${col.id}" title="Cambiar color"></span>
+        <span class="kanban-col-title" contenteditable="true"
+              data-title-bucket="${col.id}"
+              spellcheck="false">${escHtml(col.name)}</span>
+        <span class="kanban-col-count">${colTasks.length}</span>
+        <button class="kanban-col-del" data-del-bucket="${col.id}" title="Eliminar columna">×</button>
+       </div>`;
+  const colAttrs = isVirtual ? '' :
+    `ondragover="_onColDragOver(event,'${col.id}')" ondragleave="_onColDragLeave(event)" ondrop="_onColDrop(event,'${col.id}')"`;
+  const addBtn = isVirtual ? '' :
+    `<button class="kanban-col-add-btn" data-add-bucket="${col.id}">+ ${t('task_add_task').replace('+ ','')}</button>`;
+  return `
+  <div class="kanban-col" data-bucket-id="${col.id}" ${colAttrs}>
+    ${colHeader}
+    <div class="kanban-col-body" data-drop-bucket="${col.id}"
+         ondragover="if(!_dragBucketId){event.preventDefault();event.currentTarget.classList.add('drag-over');}"
+         ondragleave="event.currentTarget.classList.remove('drag-over')"
+         ondrop="_onDropCard(event,'${col.id}')">
+      ${cards}
+    </div>
+    ${addBtn}
+  </div>`;
+}
+
+function _parseValidDate(str) {
+  if (!str) return null;
+  // Accept YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY
+  const d = new Date(str);
+  if (!isNaN(d.getTime()) && d.getFullYear() > 1970) return d;
+  // Try DD/MM/YYYY
+  const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) { const d2 = new Date(`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`); if (!isNaN(d2.getTime())) return d2; }
+  return null;
+}
+
+function _fmtLastEdited(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString(currentLang === 'en' ? 'en-GB' : 'es-ES', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function _toDateInput(str) {
+  const d = _parseValidDate(str);
+  if (!d) return '';
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function _fmtDate(d) {
+  if (!d) return '';
+  const now = new Date();
+  const opts = d.getFullYear() === now.getFullYear()
+    ? { day: 'numeric', month: 'short' }
+    : { day: 'numeric', month: 'short', year: 'numeric' };
+  return d.toLocaleDateString(currentLang === 'en' ? 'en-GB' : 'es-ES', opts);
+}
+
+const _CAL_ICON = `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0;margin-right:3px;opacity:.7"><rect x="1" y="3" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 1v4M11 1v4M1 7h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+
+function _renderCardDate(startStr, endStr) {
+  const start = _parseValidDate(startStr);
+  const end   = _parseValidDate(endStr);
+  if (!start && !end) return '';
+  const label = start && end
+    ? `${_fmtDate(start)} → ${_fmtDate(end)}`
+    : _fmtDate(start || end);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const overdue = end && end < today ? ' overdue' : '';
+  return `<span class="kanban-card-deadline${overdue}">${_CAL_ICON}${label}</span>`;
+}
+
+const _TAG_COLORS = ['#8b5cf6','#3b82f6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#6b7280'];
+let _tagColorIdx = 0;
+function _nextTagColor() { return _TAG_COLORS[_tagColorIdx++ % _TAG_COLORS.length]; }
+function _parseTag(tg) {
+  if (!tg) return null;
+  if (typeof tg === 'string') return {name: tg, color: '#8b5cf6'};
+  if (tg.name) return tg;
+  return null;
+}
+
+function _renderKanbanCard(task) {
+  const doneCls = task.status === 'done' ? ' done' : '';
+
+  // Tags — colored pills at top
+  const tagPills = (task.tags || []).map(tg => _parseTag(tg)).filter(Boolean).map(({name, color}) =>
+    `<span class="kanban-card-tag" style="background:${color}22;color:${color};border-color:${color}40">${escHtml(name)}</span>`
+  ).join('');
+
+  // Due date only (Planner only shows end date on card)
+  const deadline = _renderCardDate(null, task.end_date || task.deadline);
+
+  // Subtask count
+  const subtasks = (_taskData.tasks || []).filter(t => t.parent_id === task.id);
+  const doneSubs = subtasks.filter(t => t.status === 'done').length;
+  const subtaskBadge = subtasks.length
+    ? `<span class="kanban-card-subtasks">${doneSubs}/${subtasks.length}</span>` : '';
+
+  // Priority icon
+  const priorityIcon = task.priority === 'high'
+    ? `<span class="kanban-card-priority kcp-high">!</span>`
+    : task.priority === 'medium'
+    ? `<span class="kanban-card-priority kcp-med">!</span>` : '';
+
+  // Assignee initials circle
+  const assignee = task.assignee
+    ? `<span class="kanban-card-avatar">${escHtml(task.assignee.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase())}</span>` : '';
+
+  // Quick-done checkmark
+  const checked = task.status === 'done' ? ' kcc-checked' : '';
+  const checkBtn = `<button class="kanban-card-check${checked}" onclick="event.stopPropagation();_quickDone('${task.id}')" title="Marcar completada">✓</button>`;
+
+  return `
+  <div class="kanban-card${doneCls}" draggable="true"
+       data-task-id="${task.id}"
+       ondragstart="_onDragCard(event,'${task.id}')"
+       onclick="_onKanbanCardClick(event,'${task.id}')">
+    ${tagPills ? `<div class="kanban-card-tags">${tagPills}</div>` : ''}
+    <div class="kanban-card-title-row">
+      ${checkBtn}
+      <span class="kanban-card-title">${escHtml(task.title)}</span>
+    </div>
+    <div class="kanban-card-footer">
+      <div class="kanban-card-footer-left">${deadline}${subtaskBadge}${priorityIcon}</div>
+      <div class="kanban-card-footer-right">${assignee}</div>
+    </div>
+  </div>`;
+}
+
+function _quickDone(taskId) {
+  const task = _taskData.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const next = task.status === 'done' ? 'not_started' : 'done';
+  task.status = next;
+  pywebview.api.update_task(taskId, {status: next});
+  renderKanbanBoard();
+  refreshPendingBadge();
+}
+
+function _onDragCard(event, taskId) {
+  _dragBucketId = null;
+  _dragTaskId = taskId;
+  event.dataTransfer.effectAllowed = 'move';
+}
+
+function _onDropCard(event, colId) {
+  event.preventDefault();
+  event.currentTarget.classList.remove('drag-over');
+  if (_dragBucketId || !_dragTaskId || !colId) return;
+  const task = _taskData.tasks.find(t => t.id === _dragTaskId);
+  if (!task) { _dragTaskId = null; return; }
+
+  let updates = {};
+  if (_groupBy === 'bucket') {
+    if (task.bucket_id === colId) { _dragTaskId = null; return; }
+    task.bucket_id = colId;
+    updates = {bucket_id: colId};
+    _syncStatusFromBucket(task, colId);
+  } else if (_groupBy === 'priority') {
+    const prio = colId === 'none_p' ? null : colId;
+    if ((task.priority || null) === prio) { _dragTaskId = null; return; }
+    task.priority = prio;
+    updates = {priority: prio};
+  } else if (_groupBy === 'assignee') {
+    const assignee = colId === 'unassigned' ? null : colId;
+    if ((task.assignee || null) === assignee) { _dragTaskId = null; return; }
+    task.assignee = assignee;
+    updates = {assignee: assignee};
+  } else {
+    // due_date: no se puede asignar fecha arrastrando
+    _dragTaskId = null;
+    return;
+  }
+
+  pywebview.api.update_task(_dragTaskId, updates);
+  _dragTaskId = null;
+  renderKanbanBoard();
+}
+
+// ── Column drag-to-reorder ────────────────────────────────────────────────────
+
+function _onColDragStart(event, bucketId) {
+  _dragBucketId = bucketId;
+  _dragTaskId = null;
+  event.dataTransfer.effectAllowed = 'move';
+  event.currentTarget.closest('.kanban-col').classList.add('col-dragging');
+}
+
+function _onColDragEnd() {
+  _dragBucketId = null;
+  document.querySelectorAll('.kanban-col').forEach(c =>
+    c.classList.remove('col-dragging', 'col-drag-over'));
+}
+
+function _onColDragOver(event, bucketId) {
+  if (!_dragBucketId || _dragBucketId === bucketId) return;
+  event.preventDefault();
+  document.querySelectorAll('.kanban-col').forEach(c => c.classList.remove('col-drag-over'));
+  event.currentTarget.classList.add('col-drag-over');
+}
+
+function _onColDragLeave(event) {
+  if (!event.currentTarget.contains(event.relatedTarget))
+    event.currentTarget.classList.remove('col-drag-over');
+}
+
+function _onColDrop(event, targetBucketId) {
+  event.preventDefault();
+  if (!_dragBucketId || _dragBucketId === targetBucketId) return;
+  event.currentTarget.classList.remove('col-drag-over');
+  const fromIdx = _buckets.findIndex(b => b.id === _dragBucketId);
+  const toIdx   = _buckets.findIndex(b => b.id === targetBucketId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const [moved] = _buckets.splice(fromIdx, 1);
+  _buckets.splice(toIdx, 0, moved);
+  _buckets.forEach((b, i) => { b.order = i; });
+  _dragBucketId = null;
+  pywebview.api.save_buckets(_buckets);
+  renderKanbanBoard();
+}
+
+function _onKanbanCardClick(event, taskId) {
+  if (event.target.closest('[contenteditable]')) return;
+  openTaskDetail(taskId);
+}
+
+async function _addBucket() {
+  const name = prompt(t('bucket_name_prompt'), t('bucket_new_name'));
+  if (!name || !name.trim()) return;
+  const colors = ['#6b7280','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#ef4444','#06b6d4'];
+  const bucket = {
+    id: 'bucket-' + Date.now(),
+    name: name.trim(),
+    color: colors[_buckets.length % colors.length],
+    order: _buckets.length,
+  };
+  _buckets.push(bucket);
+  await pywebview.api.save_buckets(_buckets);
+  renderKanbanBoard();
+}
+
+async function _deleteBucket(bucketId) {
+  if (_buckets.length <= 1) return;
+  const bucket = _buckets.find(b => b.id === bucketId);
+  const taskCount = _taskData.tasks.filter(t => t.bucket_id === bucketId).length;
+  const msg = currentLang === 'en'
+    ? `Delete column "${bucket?.name || ''}"?${taskCount ? ` Its ${taskCount} task(s) will move to the first column.` : ''}`
+    : `¿Eliminar la columna "${bucket?.name || ''}"?${taskCount ? ` Sus ${taskCount} tarea(s) pasarán a la primera columna.` : ''}`;
+  if (!confirm(msg)) return;
+  const remaining = _buckets.filter(b => b.id !== bucketId);
+  const fallback = remaining[0]?.id || 'pendiente';
+  const affected = _taskData.tasks.filter(t => t.bucket_id === bucketId);
+  for (const tk of affected) {
+    tk.bucket_id = fallback;
+    await pywebview.api.update_task(tk.id, {bucket_id: fallback});
+  }
+  _buckets = remaining.map((b, i) => ({...b, order: i}));
+  await pywebview.api.save_buckets(_buckets);
+  renderKanbanBoard();
+}
+
+async function _saveBucketTitle(bucketId, newName) {
+  const b = _buckets.find(b => b.id === bucketId);
+  if (!b || !newName.trim() || b.name === newName.trim()) return;
+  b.name = newName.trim();
+  await pywebview.api.save_buckets(_buckets);
+}
+
+async function _saveBucketColor(bucketId, color) {
+  const b = _buckets.find(b => b.id === bucketId);
+  if (!b) return;
+  b.color = color;
+  await pywebview.api.save_buckets(_buckets);
+  renderKanbanBoard();
+}
+
+function _showTagColorPicker(anchorEl, taskId, tagName) {
+  document.getElementById('tag-color-picker')?.remove();
+  const picker = document.createElement('div');
+  picker.id = 'tag-color-picker';
+  picker.className = 'kanban-color-picker';
+  _TAG_COLORS.forEach(c => {
+    const sw = document.createElement('button');
+    sw.className = 'kanban-color-swatch';
+    sw.style.background = c;
+    sw.onclick = async (ev) => {
+      ev.stopPropagation();
+      picker.remove();
+      const tk = _taskData.tasks.find(t => t.id === taskId);
+      if (!tk) return;
+      tk.tags = (tk.tags || []).map(tg => {
+        const parsed = _parseTag(tg);
+        if (!parsed) return tg;
+        return parsed.name === tagName ? {name: parsed.name, color: c} : tg;
+      }).filter(Boolean);
+      // Update pill in DOM
+      const pill = document.querySelector(`.drawer-tag[data-tag-name="${tagName}"]`);
+      if (pill) {
+        pill.style.cssText = `background:${c}22;color:${c};border-color:${c}44`;
+        const dot = pill.querySelector('.drawer-tag-color-btn');
+        if (dot) dot.style.background = c;
+      }
+      await pywebview.api.update_task(taskId, {tags: tk.tags});
+      _updateLastEditedUI?.();
+      if (typeof _boardView !== 'undefined' && _boardView) renderKanbanBoard();
+    };
+    picker.appendChild(sw);
+  });
+  document.body.appendChild(picker);
+  const rect = anchorEl.getBoundingClientRect();
+  picker.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${rect.left}px;z-index:9999`;
+  setTimeout(() => document.addEventListener('click', () => picker.remove(), {once:true}), 0);
+}
+
+function _showColorPicker(anchorEl, bucketId) {
+  document.getElementById('kanban-color-picker')?.remove();
+  const colors = ['#6b7280','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#ef4444','#06b6d4'];
+  const picker = document.createElement('div');
+  picker.id = 'kanban-color-picker';
+  picker.className = 'kanban-color-picker';
+  picker.innerHTML = colors.map(c =>
+    `<span class="kanban-color-swatch" style="background:${c}" data-color="${c}"></span>`
+  ).join('');
+  document.body.appendChild(picker);
+  const rect = anchorEl.getBoundingClientRect();
+  picker.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${rect.left}px;z-index:9999`;
+  picker.querySelectorAll('[data-color]').forEach(sw => {
+    sw.addEventListener('click', e => {
+      e.stopPropagation();
+      _saveBucketColor(bucketId, sw.dataset.color);
+      picker.remove();
+    });
+  });
+  setTimeout(() => document.addEventListener('click', () => picker.remove(), {once: true}), 0);
+}
+
+function _bindKanbanEvents() {
+  const board = document.getElementById('kanban-board');
+  if (!board) return;
+  board.querySelectorAll('[data-title-bucket]').forEach(el => {
+    el.addEventListener('blur', () => _saveBucketTitle(el.dataset.titleBucket, el.textContent.trim()));
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); }});
+  });
+  board.querySelectorAll('[data-color-bucket]').forEach(dot => {
+    dot.addEventListener('click', e => {
+      e.stopPropagation();
+      _showColorPicker(dot, dot.dataset.colorBucket);
+    });
+  });
+  board.querySelectorAll('[data-del-bucket]').forEach(btn => {
+    btn.addEventListener('click', () => _deleteBucket(btn.dataset.delBucket));
+  });
+  board.querySelectorAll('[data-add-bucket]').forEach(btn => {
+    btn.addEventListener('click', () => _startAddTaskInBucket(btn.dataset.addBucket));
+  });
+}
+
+function _startAddTaskInBucket(bucketId) {
+  const col = document.querySelector(`[data-bucket-id="${bucketId}"] .kanban-col-body`);
+  if (!col) return;
+  const inp = document.createElement('input');
+  inp.className = 'kanban-card-new-input';
+  inp.placeholder = t('task_new_ph') || 'Nueva tarea...';
+  col.appendChild(inp);
+  inp.focus();
+  let committed = false;
+  const commit = async () => {
+    if (committed) return; committed = true;
+    const title = inp.value.trim();
+    inp.remove();
+    if (!title) return;
+    const task = await pywebview.api.create_task('none', title, '', '', '', '', bucketId, '', '', [], 'board');
+    task.bucket_id = bucketId;
+    _taskData.tasks.push(task);
+    renderKanbanBoard();
+    refreshPendingBadge();
+  };
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { inp.value = ''; commit(); }
   });
 }
 
@@ -1425,6 +2070,9 @@ async function openTaskDetail(taskId) {
     `<option value="${s}" ${task.status === s ? 'selected' : ''}>${_statusLabel(s)}</option>`).join('');
   const priorityOpts = PRIORITY_CYCLE.map(p =>
     `<option value="${p ?? ''}" ${(task.priority ?? '') === (p ?? '') ? 'selected' : ''}>${_priorityLabel(p)}</option>`).join('');
+  const bucketOpts = _buckets.map(b =>
+    `<option value="${b.id}" ${(task.bucket_id || 'pendiente') === b.id ? 'selected' : ''}>${escHtml(b.name)}</option>`
+  ).join('');
   const meetingMeta = task.meeting_path ? _meetingMetaFromPath(task.meeting_path) : null;
 
   body.innerHTML = `
@@ -1441,6 +2089,10 @@ async function openTaskDetail(taskId) {
         <div class="drawer-field-label">${t('task_col_priority')}</div>
         <select class="drawer-cell-input" id="drawer-priority">${priorityOpts}</select>
       </div>
+      ${_buckets.length ? `<div class="drawer-field">
+        <div class="drawer-field-label">${t('bucket_label')}</div>
+        <select class="drawer-cell-input" id="drawer-bucket">${bucketOpts}</select>
+      </div>` : ''}
     </div>
     <div class="drawer-fields-row">
       <div class="drawer-field">
@@ -1448,8 +2100,25 @@ async function openTaskDetail(taskId) {
         <input class="drawer-cell-input" id="drawer-assignee" type="text" value="${escHtml(task.assignee || '')}" placeholder="—">
       </div>
       <div class="drawer-field">
-        <div class="drawer-field-label">${t('task_col_deadline')}</div>
-        <input class="drawer-cell-input" id="drawer-deadline" type="text" value="${escHtml(task.deadline || '')}" placeholder="—">
+        <div class="drawer-field-label">${t('task_col_start_date')}</div>
+        <input class="drawer-cell-input drawer-date-input" id="drawer-start-date" type="date" value="${_toDateInput(task.start_date)}">
+      </div>
+      <div class="drawer-field">
+        <div class="drawer-field-label">${t('task_col_end_date')}</div>
+        <input class="drawer-cell-input drawer-date-input" id="drawer-end-date" type="date" value="${_toDateInput(task.end_date || task.deadline)}">
+      </div>
+    </div>
+    <div class="drawer-field">
+      <div class="drawer-field-label">${t('task_col_tags')}</div>
+      <div class="drawer-tags-area" id="drawer-tags-area">
+        ${(task.tags || []).map(tg => _parseTag(tg)).filter(Boolean).map(({name,color}) =>
+          `<span class="drawer-tag" data-tag-name="${escHtml(name)}" style="background:${color}22;color:${color};border-color:${color}44">
+            <button class="drawer-tag-color-btn" style="background:${color}" onclick="_showTagColorPicker(this,'${taskId}','${escHtml(name)}')" title="Cambiar color"></button>
+            ${escHtml(name)}
+            <button class="drawer-tag-del" data-tag="${escHtml(name)}">×</button>
+          </span>`
+        ).join('')}
+        <input class="drawer-tag-input" id="drawer-tag-input" type="text" placeholder="${t('tags_placeholder')}">
       </div>
     </div>
     <div class="drawer-field">
@@ -1476,22 +2145,42 @@ async function openTaskDetail(taskId) {
     <div class="drawer-btn-row">
       <button class="btn btn-primary btn-sm" id="drawer-launch-btn" onclick="_launchFromDrawer()">${t('btn_launch')}</button>
       <button class="btn btn-ghost btn-sm" onclick="closeTaskDetail()">${t('regen_cancel')}</button>
-    </div>` : ''}`;
+    </div>` : ''}
+    <div class="drawer-save-row">
+      <button class="btn btn-primary btn-sm" id="drawer-save-btn">${t('btn_save_task')}</button>
+      <span class="drawer-last-edited" id="drawer-last-edited">
+        ${task.last_edited ? `${t('last_edited_label')}: ${_fmtLastEdited(task.last_edited)}` : t('last_edited_never')}
+      </span>
+    </div>`;
+
+  const _updateLastEditedUI = () => {
+    const el = document.getElementById('drawer-last-edited');
+    if (!el) return;
+    const now = new Date().toISOString();
+    el.textContent = `${t('last_edited_label')}: ${_fmtLastEdited(now)}`;
+  };
 
   // Auto-save fields on change
   const saveField = async (field, getValue) => {
-    const val = getValue();
-    const update = { [field]: val || null };
+    const rawVal = getValue();
+    const val = (rawVal === '' || rawVal === undefined) ? null : rawVal;
+    const tk0 = _taskData.tasks.find(t => t.id === taskId);
+    // Skip if value hasn't changed
+    if (tk0 && (tk0[field] ?? null) === val) return;
+    const update = { [field]: val };
     await pywebview.api.update_task(taskId, update);
     const tk = _taskData.tasks.find(t => t.id === taskId);
-    if (tk) tk[field] = val || null;
+    if (tk) { tk[field] = val; tk.last_edited = new Date().toISOString(); }
     _refreshProjectCount(tk?.project_id);
+    _updateLastEditedUI();
     // Sync back to table row
     const titleInput = document.querySelector(`[data-task-field="${taskId}:title"]`);
     if (field === 'title' && titleInput) { titleInput.value = val; titleInput.title = val; }
     if (field === 'status') {
       const statusSel = document.querySelector(`[data-status-task="${taskId}"]`);
       if (statusSel) { statusSel.value = val; statusSel.className = 'task-status-select ' + _statusCls(val); }
+      _syncBucketFromStatus(tk, val);
+      if (_boardView) renderKanbanBoard();
       refreshPendingBadge();
     }
   };
@@ -1504,10 +2193,71 @@ async function openTaskDetail(taskId) {
     saveField('priority', () => document.getElementById('drawer-priority').value || null));
   document.getElementById('drawer-assignee')?.addEventListener('blur', () =>
     saveField('assignee', () => document.getElementById('drawer-assignee').value.trim()));
-  document.getElementById('drawer-deadline')?.addEventListener('blur', () =>
-    saveField('deadline', () => document.getElementById('drawer-deadline').value.trim()));
+  document.getElementById('drawer-start-date')?.addEventListener('change', () =>
+    saveField('start_date', () => document.getElementById('drawer-start-date').value || null));
+  document.getElementById('drawer-end-date')?.addEventListener('change', () =>
+    saveField('end_date', () => document.getElementById('drawer-end-date').value || null));
   document.getElementById('drawer-description')?.addEventListener('blur', () =>
     saveField('description', () => document.getElementById('drawer-description').value.trim()));
+  document.getElementById('drawer-save-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('drawer-save-btn');
+    if (btn) btn.disabled = true;
+    const titleVal = document.getElementById('drawer-title')?.value.trim();
+    if (titleVal) await saveField('title', () => titleVal);
+    await saveField('assignee', () => document.getElementById('drawer-assignee')?.value.trim());
+    await saveField('description', () => document.getElementById('drawer-description')?.value.trim());
+    if (btn) btn.disabled = false;
+    if (_boardView) renderKanbanBoard();
+  });
+  document.getElementById('drawer-bucket')?.addEventListener('change', () => {
+    const val = document.getElementById('drawer-bucket').value;
+    saveField('bucket_id', () => val);
+    if (_boardView) renderKanbanBoard();
+  });
+
+  // Tags
+  const _saveTags = async () => {
+    const tk = _taskData.tasks.find(t => t.id === taskId);
+    if (!tk) return;
+    await pywebview.api.update_task(taskId, { tags: tk.tags || [] });
+    _updateLastEditedUI();
+    if (_boardView) renderKanbanBoard();
+  };
+  document.getElementById('drawer-tags-area')?.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-tag]');
+    if (!btn) return;
+    const nameToRemove = btn.dataset.tag;
+    const tk = _taskData.tasks.find(t => t.id === taskId);
+    if (!tk) return;
+    tk.tags = (tk.tags || []).filter(tg => { const p = _parseTag(tg); return p && p.name !== nameToRemove; });
+    btn.closest('.drawer-tag')?.remove();
+    await _saveTags();
+  });
+  document.getElementById('drawer-tag-input')?.addEventListener('keydown', async e => {
+    if (e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    const input = e.target;
+    const newName = input.value.trim().replace(/,$/, '');
+    if (!newName) return;
+    const tk = _taskData.tasks.find(t => t.id === taskId);
+    if (!tk) return;
+    tk.tags = tk.tags || [];
+    const exists = tk.tags.some(tg => { const p = _parseTag(tg); return p && p.name === newName; });
+    if (!exists) {
+      const color = _nextTagColor();
+      const newTag = {name: newName, color};
+      tk.tags.push(newTag);
+      const area = document.getElementById('drawer-tags-area');
+      const pill = document.createElement('span');
+      pill.className = 'drawer-tag';
+      pill.dataset.tagName = newName;
+      pill.style.cssText = `background:${color}22;color:${color};border-color:${color}44`;
+      pill.innerHTML = `<button class="drawer-tag-color-btn" style="background:${color}" onclick="_showTagColorPicker(this,'${taskId}','${escHtml(newName)}')" title="Cambiar color"></button>${escHtml(newName)}<button class="drawer-tag-del" data-tag="${escHtml(newName)}">×</button>`;
+      area.insertBefore(pill, input);
+      await _saveTags();
+    }
+    input.value = '';
+  });
 
   // Save prompt to meeting JSON on blur
   if (isClaudeExec && task.meeting_path) {
@@ -1983,6 +2733,17 @@ async function moveToPanel(path, index, btn) {
   if (meeting?.project_id) projSelect.value = meeting.project_id;
   _populateParentSelect(projSelect.value, data.tasks || []);
   projSelect.onchange = () => _populateParentSelect(projSelect.value, data.tasks || []);
+  // Wire up view toggle
+  document.getElementById('modal-view-toggle').querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.onclick = () => {
+      document.getElementById('modal-view-toggle').querySelectorAll('.toggle-btn')
+        .forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+  });
+  // Reset toggle to list by default
+  document.getElementById('modal-view-toggle').querySelectorAll('.toggle-btn')
+    .forEach(b => b.classList.toggle('active', b.dataset.view === 'list'));
   _pendingPanelAction = { path, index, btn };
   document.getElementById('panel-modal').classList.remove('hidden');
 }
@@ -2004,14 +2765,20 @@ async function confirmMoveToPanel() {
   const { path, index, btn } = _pendingPanelAction;
   const projectId = document.getElementById('modal-project-select').value;
   const parentId  = document.getElementById('modal-parent-select').value;
+  const activeViewBtn = document.querySelector('#modal-view-toggle .toggle-btn.active');
+  const targetView = activeViewBtn?.dataset.view || 'list';
+  const bucketId = targetView === 'board' ? (_buckets[0]?.id || 'pendiente') : null;
   closePanelModal();
-  const taskId = await pywebview.api.move_action_to_panel(path, index, projectId, parentId || null);
+  const taskId = await pywebview.api.move_action_to_panel(path, index, projectId, parentId || null, bucketId || null);
   if (taskId) {
     btn.textContent = t('btn_in_panel');
     btn.classList.add('btn-in-panel');
     btn.disabled = true;
     await refreshPendingBadge();
     showToast(t('toast_moved'));
+    showView('actions');
+    setTaskView(targetView);
+    await loadTaskBoard();
   }
 }
 
@@ -2185,6 +2952,60 @@ async function refreshPendingBadge() {
   if (!badge) return;
   badge.style.display = count > 0 ? 'flex' : 'none';
   badge.textContent   = count > 9 ? '9+' : String(count);
+}
+
+// ── Export / Import transcript ────────────────────────────────────────────────
+
+async function exportTranscript(path) {
+  let result;
+  try { result = await pywebview.api.export_transcript_file(path); } catch (e) {
+    showToast(t('export_transcript_error')); return;
+  }
+  if (result === 'no_transcript') { showToast(t('export_transcript_no_file')); return; }
+  if (result === 'cancelled') return;
+  if (result === 'ok') { showToast(t('export_transcript_done')); return; }
+  showToast(t('export_transcript_error'));
+}
+
+async function importTranscript() {
+  const btn = document.querySelector('.btn-import-transcript');
+  if (btn) btn.classList.add('loading');
+
+  let result;
+  try {
+    result = await pywebview.api.import_transcript();
+  } catch (e) {
+    if (btn) btn.classList.remove('loading');
+    showToast(t('import_transcript_error'));
+    return;
+  }
+
+  if (!result || !result.ok) {
+    if (btn) btn.classList.remove('loading');
+    return; // usuario canceló el selector
+  }
+
+  showToast(t('import_transcript_processing'));
+
+  const runId = result.run_id;
+  const pollInterval = setInterval(async () => {
+    let status;
+    try { status = await pywebview.api.get_import_status(runId); } catch (_) { return; }
+
+    if (!status.done) return;
+
+    clearInterval(pollInterval);
+    if (btn) btn.classList.remove('loading');
+
+    if (status.error) {
+      showToast(t('import_transcript_error'));
+      return;
+    }
+
+    showToast(t('import_transcript_done'));
+    await refreshMeetingList();
+    if (status.path) openMeeting(status.path);
+  }, 2000);
 }
 
 // ── Búsqueda ──────────────────────────────────────────────────────────────────

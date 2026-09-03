@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from pathlib import Path
 
@@ -9,12 +10,9 @@ log = logging.getLogger(__name__)
 _model = None
 _model_lock = threading.Lock()
 
-# Idiomas que Whisper confunde frecuentemente; mapeados al idioma real más probable
 _LANG_REMAP = {
-    # Confusiones con español
     'gl': 'es', 'ca': 'es', 'eu': 'es',
     'pt': 'es', 'it': 'es', 'fr': 'es', 'la': 'es',
-    # Confusiones con inglés (acentos británicos, audio pobre)
     'cy': 'en', 'ga': 'en', 'gd': 'en',
 }
 
@@ -24,8 +22,15 @@ def _get_model():
     with _model_lock:
         if _model is None:
             from faster_whisper import WhisperModel
-            log.info(f"Cargando modelo Whisper '{WHISPER_MODEL}'...")
-            _model = WhisperModel(WHISPER_MODEL, device='auto', compute_type='int8')
+            try:
+                import psutil
+                threads = psutil.cpu_count(logical=False) or os.cpu_count() or 4
+            except Exception:
+                threads = os.cpu_count() or 4
+            log.info(f"Cargando modelo Whisper '{WHISPER_MODEL}' (cpu_threads={threads})...")
+            _model = WhisperModel(
+                WHISPER_MODEL, device='auto', compute_type='int8', cpu_threads=threads,
+            )
             log.info("Modelo Whisper cargado")
         return _model
 
@@ -37,7 +42,6 @@ def _format_time(secs: float) -> str:
 
 
 def _transcribe_local(audio_path: Path, on_progress=None, on_segment=None) -> tuple[str, str]:
-    """Devuelve (transcript_text, detected_language)."""
     model = _get_model()
     lang = WHISPER_LANGUAGE
     segments, info = model.transcribe(
@@ -72,7 +76,6 @@ def _transcribe_local(audio_path: Path, on_progress=None, on_segment=None) -> tu
 
 
 def _transcribe_openai(audio_path: Path) -> tuple[str, str]:
-    """Devuelve (transcript_text, detected_language). Fallback a 'es' si no detecta."""
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY no configurada")
     from openai import OpenAI

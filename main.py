@@ -80,52 +80,93 @@ def main():
         detector  = TeamsCallDetector()
         tray      = TrayApp(recorder, detector)
 
-        _popup_active   = [False]   # guard para evitar popups múltiples
-        _last_popup_at  = [0.0]    # timestamp del último popup mostrado
-        _POPUP_COOLDOWN = 600      # no repetir popup en la misma reunión (10 min)
-        _popup_lock     = threading.Lock()  # hace atómico el check-and-set de _popup_active
+        _popup_active      = [False]   # guard para evitar popups múltiples
+        _active_generation = [None]    # generación capturada en el último on_call_started
+        _popup_lock        = threading.Lock()  # hace atómico el check-and-set de _popup_active
 
         def on_call_started():
-            import time as _time
+            from teams_detector import get_current_meeting_name
+            meeting = get_current_meeting_name() or 'reunion'
+
+            try:
+                is_reconnect = tray.has_pending_session(meeting)
+            except Exception:
+                is_reconnect = False
+
             with _popup_lock:
                 if recorder.is_recording or _popup_active[0]:
                     return
-                if (_time.time() - _last_popup_at[0]) < _POPUP_COOLDOWN:
+                # call_declined bloquea reuniones nuevas, no reconexiones a la misma
+                if not is_reconnect and detector.call_declined:
                     return
-                _popup_active[0]  = True
-                _last_popup_at[0] = _time.time()
+                _popup_active[0]      = True
+                _active_generation[0] = detector.call_generation
+
             try:
                 from popup import RecordingPopup
-                from teams_detector import get_current_meeting_name
+                try:
+                    from config import get_ui_language
+                    _lang = get_ui_language()
+                except Exception:
+                    _lang = 'es'
 
-                meeting = get_current_meeting_name() or 'reunion'
-
-                def on_yes():
+                def _start_recording(continuing):
                     _popup_active[0] = False
+                    if continuing:
+                        tray.request_continuation()
                     path = get_recording_path(meeting)
-                    recorder.on_recording_stopped = tray._on_recording_done
                     recorder.start(path)
                     tray.set_recording(True, path)
-                    log.info(f"Grabación iniciada: {path.name}")
+                    log.info(f"{'Continuando (reconexión)' if continuing else 'Grabación iniciada'}: {path.name}")
 
-                def on_no():
-                    _popup_active[0] = False
-                    log.info("Usuario rechazó grabar")
+                if is_reconnect:
+                    def on_yes():
+                        _start_recording(continuing=True)
 
-                RecordingPopup(on_yes=on_yes, on_no=on_no).show()
+                    def on_no():
+                        _popup_active[0] = False
+                        tray.finalize_pending_now()
+                        log.info("Reconexión: usuario NO continúa — se cierra la reunión anterior")
+
+                    if _lang == 'en':
+                        RecordingPopup(on_yes=on_yes, on_no=on_no,
+                                       title='Same meeting detected',
+                                       subtitle='Keep recording and merge with the previous one?',
+                                       yes_label='  Keep  ', no_label='No, close').show()
+                    else:
+                        RecordingPopup(on_yes=on_yes, on_no=on_no,
+                                       title='Misma reunión detectada',
+                                       subtitle='¿Seguir grabando y unirla a la anterior?',
+                                       yes_label='  Seguir  ', no_label='No, cerrar').show()
+                else:
+                    def on_yes():
+                        _start_recording(continuing=False)
+
+                    def on_no():
+                        _popup_active[0] = False
+                        detector.set_declined()
+                        log.info("Usuario rechazó grabar")
+
+                    RecordingPopup(on_yes=on_yes, on_no=on_no).show()
+
             except Exception as e:
                 _popup_active[0] = False
                 log.error(f"Error mostrando popup: {e}")
 
         def on_call_ended():
+            if detector.call_generation != _active_generation[0]:
+                log.info("on_call_ended ignorado: generación obsoleta")
+                return
             if recorder.is_recording:
                 recorder.stop()
                 tray.set_recording(False)
                 log.info("Grabación detenida: llamada Teams finalizada")
 
-        detector.on_call_started    = on_call_started
-        detector.on_call_ended      = on_call_ended
+        detector.on_call_started     = on_call_started
+        detector.on_call_ended       = on_call_ended
         detector.is_active_recording = lambda: recorder.is_recording
+
+        recorder.on_recording_stopped = tray._on_recording_done
 
         detector.start()
         InboxWatcher(on_wav_ready=tray._on_recording_done).start()

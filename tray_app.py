@@ -59,10 +59,16 @@ class TrayApp:
         self._detector = detector
         self._icon = None
         self._pipeline_queue: queue.Queue = queue.Queue()
+        self._pipeline_queued: list = []
         self._recording_start: float | None = None
         self._recording_path: Path | None = None
         self._ticker_stop = threading.Event()
         self._processing_msg: str = ''
+        self._current_job: dict = {}
+
+        self._session: dict | None = None
+        self._session_lock = threading.RLock()
+        self._MERGE_GRACE = 90
 
         threading.Thread(target=self._pipeline_loop, daemon=True, name='PipelineWorker').start()
         threading.Thread(target=self._recover_pending, daemon=True, name='PipelineRecovery').start()
@@ -103,7 +109,11 @@ class TrayApp:
             jobs.append({'stage': 'recording', 'label': f'Recording {m:02d}:{s:02d}', 'elapsed': elapsed, 'pct': None})
         if self._processing_msg:
             pct_m = _re.search(r'(\d+)%', self._processing_msg)
-            jobs.append({'stage': 'processing', 'label': self._processing_msg, 'pct': int(pct_m.group(1)) if pct_m else None})
+            job = {'stage': 'processing', 'label': self._processing_msg, 'pct': int(pct_m.group(1)) if pct_m else None}
+            job.update(self._current_job)
+            jobs.append(job)
+        for name in self._pipeline_queued:
+            jobs.append({'stage': 'queued', 'label': name, 'pct': 0})
         try:
             (PROJECT_DIR / '.pipeline_status.json').write_text(_json.dumps({'jobs': jobs}), encoding='utf-8')
         except Exception:
@@ -121,14 +131,11 @@ class TrayApp:
             self._recording_path = None
             self._ticker_stop.set()
             self._recording_start = None
-            # Si aún hay procesamiento en curso, mostrar ese estado; si no, idle
             if self._processing_msg:
                 self._set_icon(_ICON_PROCESSING, f'TeamsRecorder - {self._processing_msg}')
             else:
                 self._set_icon(_ICON_IDLE, 'TeamsRecorder')
         self._write_status()
-        # Forzar a pystray a reevaluar lambdas del menú (título "Parar/Grabar",
-        # visibilidad de "Añadir contexto") de forma inmediata.
         try:
             if self._icon:
                 self._icon.update_menu()
@@ -139,7 +146,6 @@ class TrayApp:
         self._processing_msg = msg
         self._write_status()
         if not self._recording_start:
-            # No hay grabación activa: actualizar ícono directamente
             if msg:
                 self._set_icon(_ICON_PROCESSING, f'TeamsRecorder - {msg}')
             else:
@@ -205,7 +211,10 @@ class TrayApp:
             log.error(f"Push notification error: {e}")
 
     def _on_recording_done(self, wav_path: Path):
+        self._register_part_recorded(wav_path)
+        self._pipeline_queued.append(wav_path.stem)
         self._pipeline_queue.put(wav_path)
+        self._write_status()
         n = self._pipeline_queue.qsize()
         if n > 1:
             s = _STR.get(get_ui_language(), _STR['en'])
@@ -217,6 +226,8 @@ class TrayApp:
             if wav_path is None:
                 break
             try:
+                self._pipeline_queued = [n for n in self._pipeline_queued if n != wav_path.stem]
+                self._write_status()
                 self._run_pipeline_sync(wav_path)
             except Exception as e:
                 log.error(f"Pipeline error: {e}", exc_info=True)
@@ -233,9 +244,13 @@ class TrayApp:
         transcript_path = get_transcript_path(wav_path)
         partial_path = wav_path.parent / f"{wav_path.stem}.partial"
 
-        detected_language = 'auto'  # Claude auto-detects from transcript; overridden by Whisper detection below
+        detected_language = 'auto'
 
-        # Paso 1: transcribir (o saltar si ya existe)
+        _m = re.match(r'\d{4}-\d{2}-\d{2}_(\d{2})-(\d{2})(?:_(.+))?', wav_path.stem)
+        _job_time  = f"{_m.group(1)}:{_m.group(2)}" if _m else ''
+        _job_title = _m.group(3).replace('_', ' ').title() if (_m and _m.group(3)) else wav_path.stem
+        self._current_job = {'title': _job_title, 'time': _job_time, 'step': 1, 'total_steps': 3, 'step_label': 'Transcribiendo', 'step_started': time.time()}
+
         lang_path = transcript_path.with_suffix('.lang')
         if transcript_path.exists():
             transcript_text = transcript_path.read_text(encoding='utf-8')
@@ -277,11 +292,168 @@ class TrayApp:
 
             transcript_path.write_text(transcript_text, encoding='utf-8')
 
-        # Leer contexto opcional del usuario (sidecar .context junto al WAV)
+        self._register_part(wav_path, transcript_text, detected_language)
+
+    # ── Sesión de reunión ─────────────────────────────────────────────────────
+
+    def _norm_key(self, name: str) -> str:
+        return re.sub(r'[^a-z0-9]', '', (name or '').lower())
+
+    def _register_part_recorded(self, wav_path):
+        _nm = re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_(.+)', wav_path.stem)
+        key = self._norm_key(_nm.group(1).replace('_', ' ')) if _nm else ''
+        with self._session_lock:
+            sess = self._session
+            if sess and sess.get('awaiting') and not sess.get('finalized'):
+                sess['parts'].append(wav_path)
+                sess['transcripts'][wav_path.stem] = None
+                sess['awaiting'] = False
+                sess['last_at'] = time.time()
+                log.info("Reconexión: grabación añadida a la reunión anterior")
+            else:
+                if sess and not sess.get('finalized'):
+                    threading.Thread(target=self._finalize_session, args=(sess,),
+                                     daemon=True, name='FinalizeOld').start()
+                self._session = {
+                    'base_wav': wav_path, 'parts': [wav_path],
+                    'transcripts': {wav_path.stem: None}, 'lang': 'auto',
+                    'key': key, 'awaiting': False, 'finalized': False,
+                    'timer': None, 'last_at': time.time(),
+                }
+
+    def _register_part(self, wav_path, transcript_text, detected_language):
+        with self._session_lock:
+            sess = self._session
+            if (not sess or sess.get('finalized')
+                    or wav_path.stem not in sess.get('transcripts', {})):
+                _nm = re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_(.+)', wav_path.stem)
+                key = self._norm_key(_nm.group(1).replace('_', ' ')) if _nm else ''
+                sess = {
+                    'base_wav': wav_path, 'parts': [wav_path],
+                    'transcripts': {wav_path.stem: transcript_text}, 'lang': detected_language,
+                    'key': key, 'awaiting': False, 'finalized': False,
+                    'timer': None, 'last_at': time.time(),
+                }
+                self._session = sess
+            else:
+                sess['transcripts'][wav_path.stem] = transcript_text
+                if detected_language and detected_language != 'auto':
+                    sess['lang'] = detected_language
+                sess['last_at'] = time.time()
+            complete = (not sess.get('awaiting')
+                        and all(v is not None for v in sess['transcripts'].values()))
+        if complete:
+            self._schedule_finalize(sess)
+            self.set_processing('Transcrito — cerrando (por si te reconectas)')
+        else:
+            self.set_processing('Transcrito — esperando la reconexión')
+
+    def _schedule_finalize(self, sess):
+        with self._session_lock:
+            t = sess.get('timer')
+            if t:
+                try: t.cancel()
+                except Exception: pass
+            timer = threading.Timer(self._MERGE_GRACE, self._finalize_session, args=(sess,))
+            timer.daemon = True
+            sess['timer'] = timer
+            timer.start()
+
+    def has_pending_session(self, meeting_name: str) -> bool:
+        with self._session_lock:
+            sess = self._session
+            if not sess or sess.get('finalized'):
+                return False
+            key = self._norm_key(meeting_name)
+            skey = sess.get('key') or ''
+            if not key or not skey:
+                return False
+            return key == skey or key in skey or skey in key
+
+    def request_continuation(self):
+        with self._session_lock:
+            sess = self._session
+            if sess and not sess.get('finalized'):
+                sess['awaiting'] = True
+                t = sess.get('timer')
+                if t:
+                    try: t.cancel()
+                    except Exception: pass
+                    sess['timer'] = None
+                log.info("Reunión marcada para continuar (esperando la reconexión)")
+
+    def finalize_pending_now(self):
+        with self._session_lock:
+            sess = self._session
+            if sess and not sess.get('finalized'):
+                t = sess.get('timer')
+                if t:
+                    try: t.cancel()
+                    except Exception: pass
+                threading.Thread(target=self._finalize_session, args=(sess,),
+                                 daemon=True, name='FinalizeNow').start()
+
+    def _finalize_session(self, session):
+        from storage import get_transcript_path, get_minutes_path
+        from minutes_generator import generate_minutes, extract_title_from_minutes, save_minutes
+        from html_exporter import export_to_html
+        from actions_enricher import enrich_and_save
+
+        with self._session_lock:
+            if session.get('finalized'):
+                return
+            session['finalized'] = True
+            _t = session.get('timer')
+            if _t:
+                try: _t.cancel()
+                except Exception: pass
+
+        parts = session.get('parts', [])
+        tmap = session.get('transcripts', {})
+        transcripts = [t for t in (tmap.get(p.stem) for p in parts) if t]
+        if not parts or not transcripts:
+            return
+        wav_path = session['base_wav']
+        detected_language = session.get('lang', 'auto')
+        if len(transcripts) > 1:
+            transcript_text = "\n\n[--- reconexión: continuación de la reunión ---]\n\n".join(transcripts)
+            log.info(f"Cerrando reunión: {len(parts)} grabaciones unidas")
+        else:
+            transcript_text = transcripts[0]
+
+        s = _STR.get(get_ui_language(), _STR['en'])
+        transcript_path = get_transcript_path(wav_path)
+        try:
+            transcript_path.write_text(transcript_text, encoding='utf-8')
+        except Exception:
+            pass
+
+        _mj = re.match(r'\d{4}-\d{2}-\d{2}_(\d{2})-(\d{2})(?:_(.+))?', wav_path.stem)
+        self._current_job = {
+            'title': (_mj.group(3).replace('_', ' ').title() if (_mj and _mj.group(3)) else wav_path.stem),
+            'time': f"{_mj.group(1)}:{_mj.group(2)}" if _mj else '',
+            'step': 2, 'total_steps': 3, 'step_label': 'Generando minutas', 'step_started': time.time(),
+        }
+
+        for extra in parts[1:]:
+            try:
+                if extra.exists():
+                    (RECORDINGS_DIR / 'processed').mkdir(exist_ok=True)
+                    shutil.move(str(extra), str((RECORDINGS_DIR / 'processed') / extra.name))
+            except Exception as e:
+                log.warning(f"mover parte extra {extra.name}: {e}")
+            for aux in (extra.with_name(extra.stem + '_transcript.txt'),
+                        extra.with_suffix('.lang'), extra.with_suffix('.partial'),
+                        extra.with_suffix('.context')):
+                try:
+                    if aux.exists():
+                        aux.unlink()
+                except Exception:
+                    pass
+
         extra_context = None
         context_path = wav_path.with_suffix('.context')
         if not context_path.exists():
-            # También buscar en processed/ si el WAV ya fue movido
             context_path = RECORDINGS_DIR / 'processed' / wav_path.with_suffix('.context').name
         if context_path.exists():
             try:
@@ -290,9 +462,21 @@ class TrayApp:
             except Exception:
                 pass
 
-        # Paso 2: generar minutas
+        _proj, _ctx_dir = None, None
+        try:
+            from project_context import prepare_context
+            _nm = re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_(.+)', wav_path.stem)
+            _mtg_name = _nm.group(1).replace('_', ' ') if _nm else ''
+            _proj, _ctx_dir = prepare_context(transcript_text, _mtg_name)
+            if _ctx_dir:
+                log.info(f"Memoria de proyecto activa: {_proj.get('name')}")
+        except Exception as e:
+            log.warning(f"No se pudo preparar la memoria de proyecto: {e}")
+
+        self._current_job.update({'step': 2, 'step_label': 'Generando minutas', 'step_started': time.time()})
         self.set_processing('Generando minutas...')
-        raw = generate_minutes(transcript_text, wav_path, extra_context=extra_context, language=detected_language)
+        raw = generate_minutes(transcript_text, wav_path, extra_context=extra_context,
+                               language=detected_language, context_dir=_ctx_dir)
         if not raw:
             log.error("Generación de minutas fallida")
             self._notify('TeamsRecorder ⚠', s['minutes_failed'])
@@ -303,17 +487,23 @@ class TrayApp:
         minutes_path = get_minutes_path(wav_path, title)
         save_minutes(content, minutes_path)
 
-        # Guardar copia del transcript junto al .md para que regenerar siempre funcione
+        if _proj:
+            try:
+                from project_context import add_meeting_summary
+                _dm = re.match(r'(\d{4}-\d{2}-\d{2})', wav_path.stem)
+                add_meeting_summary(_proj.get('id', ''), minutes_path.stem, title,
+                                    _dm.group(1) if _dm else '', content)
+            except Exception as e:
+                log.warning(f"add_meeting_summary: {e}")
+
         try:
             transcript_copy = minutes_path.with_name(minutes_path.stem + '_transcript.txt')
             transcript_copy.write_text(transcript_text, encoding='utf-8')
         except Exception as e:
             log.warning(f"No se pudo copiar transcript a minutes: {e}")
 
-        # Mover WAV + transcript original a processed/
         self._move_to_processed(wav_path, transcript_path)
 
-        # Extraer fecha/hora de la grabación para buscar en calendario
         rec_time = None
         m = re.match(r'(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})', wav_path.stem)
         if m:
@@ -321,17 +511,20 @@ class TrayApp:
             rec_time = _dt(int(m.group(1)), int(m.group(2)), int(m.group(3)),
                            int(m.group(4)), int(m.group(5)))
 
-        # Buscar participantes en calendario de Outlook
+        name_m = re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_(.+)', wav_path.stem)
+        rec_name = name_m.group(1).replace('_', ' ') if name_m else None
+        if rec_name and rec_name.strip().lower() in ('manual', 'recording'):
+            rec_name = None
+
         participants = []
         try:
             from outlook_sender import find_meeting_participants
             if rec_time:
-                participants = find_meeting_participants(rec_time)
+                participants = find_meeting_participants(rec_time, meeting_name=rec_name)
                 log.info(f"Participantes detectados: {len(participants)}")
         except Exception as e:
             log.warning(f"No se pudieron detectar participantes: {e}")
 
-        # Exportar a HTML (sin abrir navegador automáticamente)
         try:
             mins_text = minutes_path.read_text(encoding='utf-8')
             title, _ = extract_title_from_minutes(mins_text) if mins_text.startswith('TITULO:') else (minutes_path.stem, mins_text)
@@ -341,14 +534,15 @@ class TrayApp:
 
         s = _STR.get(get_ui_language(), _STR['en'])
         self._notify('TeamsRecorder', s['action_items'])
+        self._current_job.update({'step': 3, 'step_label': 'Generando acciones', 'step_started': time.time()})
+        self.set_processing(s['action_items'])
 
-        # Paso 3: enriquecer acciones y notificar
-        _transcript_for_export = transcript_text  # captura para el closure
+        _transcript_for_export = transcript_text
 
         def on_done():
+            self._current_job = {}
             self.set_processing('')
             self._notify('TeamsRecorder', s['ready'])
-            # Exportar a carpeta de proyecto si está configurada
             try:
                 from project_exporter import export_to_project_folder
                 if export_to_project_folder(minutes_path, _transcript_for_export):
@@ -371,13 +565,11 @@ class TrayApp:
                 shutil.move(str(wav_path), str(dest / wav_path.name))
             except Exception as e:
                 log.warning(f"No se pudo mover {wav_path.name}: {e}")
-        # El transcript ya fue copiado a minutes/ — lo eliminamos aquí en lugar de moverlo
         if transcript_path.exists():
             try:
                 transcript_path.unlink()
             except Exception as e:
                 log.warning(f"No se pudo eliminar {transcript_path.name}: {e}")
-        # Limpiar archivos auxiliares del stem
         for suffix in ('.lang', '.partial', '.context'):
             aux = wav_path.with_suffix(suffix)
             if aux.exists():
@@ -390,7 +582,7 @@ class TrayApp:
         time.sleep(3)
         pending = []
         for wav in RECORDINGS_DIR.glob('*.wav'):
-            stem_ts = wav.stem[:16]  # YYYY-MM-DD_HH-MM (16 chars)
+            stem_ts = wav.stem[:16]
             ts_compact = stem_ts[:4] + stem_ts[5:7] + stem_ts[8:10] + '_' + stem_ts[11:13] + stem_ts[14:16]
             has_minutes = any(MINUTES_DIR.glob(f"{ts_compact}_*.md"))
             if not has_minutes:
@@ -409,7 +601,7 @@ class TrayApp:
         else:
             from storage import get_recording_path
             path = get_recording_path('manual')
-            self._recorder.on_recording_stopped = self._on_recording_done
+            # on_recording_stopped se asigna una sola vez al inicio (en main.py)
             self._recorder.start(path)
             self.set_recording(True, path)
 
@@ -420,7 +612,6 @@ class TrayApp:
         self.set_recording(False)
 
     def _add_context(self):
-        """Muestra un diálogo para añadir contexto/objetivo a la grabación en curso."""
         rec_path = self._recording_path
         if not rec_path:
             return

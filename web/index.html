@@ -33,8 +33,11 @@
 
   <aside class="sidebar">
     <div class="sidebar-header">
-      <div class="search-box">
-        <input type="text" id="search-input" data-i18n="search_ph" placeholder="Buscar en minutas..." oninput="onSearch(this.value)">
+      <div class="sidebar-search-row">
+        <div class="search-box">
+          <input type="text" id="search-input" data-i18n="search_ph" placeholder="Buscar en minutas..." oninput="onSearch(this.value)">
+        </div>
+        <button class="btn-import-transcript" onclick="importTranscript()" title="Importar transcript">+</button>
       </div>
     </div>
     <div class="sidebar-mode-toggle">
@@ -75,8 +78,17 @@
   <div class="task-board">
     <div class="task-board-header">
       <span class="task-board-title" data-i18n="nav_action_panel">Panel de Acciones</span>
+      <div class="task-view-toggle">
+        <button class="task-view-btn active" id="btn-view-list" onclick="setTaskView('list')" title="Lista">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="3" width="12" height="2" rx="1"/><rect x="2" y="7" width="12" height="2" rx="1"/><rect x="2" y="11" width="12" height="2" rx="1"/></svg>
+        </button>
+        <button class="task-view-btn" id="btn-view-board" onclick="setTaskView('board')" title="Tablero">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="4" height="12" rx="1"/><rect x="6" y="2" width="4" height="12" rx="1"/><rect x="11" y="2" width="4" height="12" rx="1"/></svg>
+        </button>
+      </div>
       <button class="btn btn-ghost btn-sm" onclick="loadTaskBoard()" style="font-size:11px">↺</button>
     </div>
+    <div id="task-filter-bar" class="task-filter-bar"></div>
     <div class="task-board-body" id="task-board-body">
       <div class="loading" data-i18n="loading_actions">Cargando...</div>
     </div>
@@ -102,6 +114,13 @@
     <div class="modal-field">
       <label data-i18n="modal_project_label">Proyecto</label>
       <select id="modal-project-select"></select>
+    </div>
+    <div class="modal-field">
+      <label data-i18n="modal_view_label">Añadir a</label>
+      <div class="settings-toggle" id="modal-view-toggle">
+        <button class="toggle-btn active" data-view="list" data-i18n="modal_view_list">Lista</button>
+        <button class="toggle-btn" data-view="board" data-i18n="modal_view_board">Kanban</button>
+      </div>
     </div>
     <div class="modal-field">
       <label data-i18n="modal_parent_label">Como sub-tarea de (opcional)</label>

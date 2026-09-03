@@ -49,8 +49,26 @@ def _save(data: dict) -> None:
     TASKS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
+def _normalize_tags(tags) -> list:
+    """Ensure every tag is either a string or {name, color} dict. Remove invalids."""
+    if not isinstance(tags, list):
+        return []
+    result = []
+    for tg in tags:
+        if isinstance(tg, str) and tg:
+            result.append(tg)
+        elif isinstance(tg, dict) and tg.get('name'):
+            result.append(tg)
+    return result
+
+
 def get_tasks() -> list:
-    return _load().get('tasks', [])
+    data = _load()
+    # Normalize tags in-memory (no disk write) so JS never gets garbage
+    for task in data.get('tasks', []):
+        if 'tags' in task:
+            task['tags'] = _normalize_tags(task['tags'])
+    return data.get('tasks', [])
 
 
 def create_task(
@@ -59,13 +77,18 @@ def create_task(
     parent_id: str | None = None,
     status: str = 'not_started',
     assignee: str | None = None,
-    deadline: str | None = None,
+    deadline: str | None = None,   # kept for backward compat — maps to end_date
     priority: str | None = None,
     source: str = 'manual',
     meeting_path: str | None = None,
     meeting_action_index: int | None = None,
     claude_executable: bool = False,
     description: str = '',
+    bucket_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    tags: list | None = None,
+    view: str | None = None,       # 'list' | 'board' | None (ambas vistas)
 ) -> dict:
     data = _load()
     task = {
@@ -75,13 +98,17 @@ def create_task(
         'description': description,
         'status': status,
         'assignee': assignee,
-        'deadline': deadline,
+        'start_date': start_date,
+        'end_date': end_date or deadline,  # deadline alias
+        'tags': tags or [],
         'priority': priority,
         'parent_id': parent_id,
+        'bucket_id': bucket_id or 'pendiente',
         'source': source,
         'meeting_path': meeting_path,
         'meeting_action_index': meeting_action_index,
         'claude_executable': claude_executable,
+        'view': view,
         'created_at': datetime.now(timezone.utc).isoformat(),
     }
     data['tasks'].append(task)
@@ -90,13 +117,14 @@ def create_task(
 
 
 def update_task(task_id: str, fields: dict) -> bool:
-    allowed = {'title', 'description', 'status', 'assignee', 'deadline', 'priority', 'parent_id', 'project_id'}
+    allowed = {'title', 'description', 'status', 'assignee', 'deadline', 'priority', 'parent_id', 'project_id', 'bucket_id', 'start_date', 'end_date', 'tags'}
     data = _load()
     for task in data['tasks']:
         if task['id'] == task_id:
             for k, v in fields.items():
                 if k in allowed:
                     task[k] = v
+            task['last_edited'] = datetime.now(timezone.utc).isoformat()
             _save(data)
             return True
     return False
@@ -144,11 +172,15 @@ def migrate_panel_actions() -> int:
                     'id': str(uuid.uuid4()),
                     'project_id': project_id,
                     'title': a.get('title', ''),
+                    'description': '',
                     'status': 'done' if a.get('executed') else 'not_started',
                     'assignee': a.get('assignee'),
-                    'deadline': a.get('deadline'),
+                    'start_date': None,
+                    'end_date': a.get('deadline'),
+                    'tags': [],
                     'priority': None,
                     'parent_id': None,
+                    'bucket_id': 'pendiente',
                     'source': 'meeting',
                     'meeting_path': meeting_path,
                     'meeting_action_index': a['index'],
@@ -164,4 +196,58 @@ def migrate_panel_actions() -> int:
     data['migrated'] = True
     _save(data)
     log.info(f"Task migration: {count} actions imported to tasks.json")
+    return count
+
+
+def auto_sync_meeting_tasks(meeting_path: str, actions: list, first_bucket_id: str = 'pendiente') -> int:
+    """Creates tasks for all meeting actions not already in tasks.json. Returns count added."""
+    data = _load()
+    existing = {
+        (t.get('meeting_path'), t.get('meeting_action_index'))
+        for t in data['tasks']
+        if t.get('meeting_path') is not None
+    }
+    project_id = 'none'
+    try:
+        from pathlib import Path as _P
+        import json as _json
+        ap_path = _P(meeting_path)
+        actions_file = ap_path.parent / f"{ap_path.stem}_actions.json"
+        if actions_file.exists():
+            adata = _json.loads(actions_file.read_text(encoding='utf-8'))
+            project_id = adata.get('project_id') or 'none'
+    except Exception:
+        pass
+
+    count = 0
+    for a in actions:
+        idx = a.get('index')
+        key = (meeting_path, idx)
+        if key in existing:
+            continue
+        task = {
+            'id': str(uuid.uuid4()),
+            'project_id': project_id,
+            'title': a.get('title', ''),
+            'description': '',
+            'status': 'done' if a.get('executed') else 'not_started',
+            'assignee': a.get('assignee'),
+            'start_date': None,
+            'end_date': a.get('deadline'),
+            'tags': [],
+            'priority': None,
+            'parent_id': None,
+            'bucket_id': first_bucket_id,
+            'source': 'meeting',
+            'meeting_path': meeting_path,
+            'meeting_action_index': idx,
+            'claude_executable': bool(a.get('claude_executable')),
+            'created_at': datetime.now(timezone.utc).isoformat(),
+        }
+        data['tasks'].append(task)
+        existing.add(key)
+        count += 1
+    if count:
+        _save(data)
+        log.info(f"auto_sync_meeting_tasks: {count} new tasks from {meeting_path}")
     return count
