@@ -17,11 +17,22 @@
   --yellow-bg:  #fffbeb;
   --yellow-border:#fcd34d;
   --red:        #ef4444;
-  --nav-width:  80px;
-  --nav-bg:     #1a1a2e;
+  --accent-tint: #F4E9FF;
+  --accent-tint2:#E7D4FF;
+  --glow:       rgba(161,0,255,0.16);
+  --nav-width:  84px;
+  --nav-bg:     #120c1d;
   --sidebar-width: 240px;
   --radius:     8px;
+  --r-sm:       7px;
+  --r-lg:       16px;
+  --r-pill:     999px;
   --shadow:     0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md:  0 4px 12px rgba(0,0,0,0.10);
+  --shadow-lg:  0 8px 24px rgba(0,0,0,0.13);
+  --surface2:   #f3f0f9;
+  --border:     #e9e4f2;
+  --subtext:    #5c5470;
 }
 
 html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: var(--text); background: var(--bg); -webkit-user-select: text; user-select: text; }
@@ -32,22 +43,23 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
 .nav-rail {
   position: fixed; left: 0; top: 0; bottom: 0; width: var(--nav-width);
   background: var(--nav-bg); display: flex; flex-direction: column;
-  align-items: stretch; padding: 12px 0 10px; gap: 2px; z-index: 100;
+  align-items: stretch; padding: 12px 6px 10px; gap: 2px; z-index: 100;
 }
 .nav-spacer { flex: 1; }
 .nav-btn {
   position: relative; width: 100%; height: 62px; border: none; cursor: pointer;
-  border-radius: 0; background: transparent; font-size: 9px;
-  text-align: center; padding: 10px 4px 8px;
+  border-radius: 14px; background: transparent; font-size: 9px;
+  text-align: center; padding: 10px 6px 8px;
   font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase;
   display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 5px;
-  transition: background 0.15s, color 0.15s; color: rgba(255,255,255,0.45);
+  transition: background 0.15s, color 0.15s, transform 0.1s; color: rgba(255,255,255,0.45);
 }
 .nav-btn svg { opacity: 0.6; transition: opacity 0.15s; flex-shrink: 0; }
-.nav-btn:hover  { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8); }
+.nav-btn:hover  { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.8); }
 .nav-btn:hover svg { opacity: 0.85; }
-.nav-btn.active { color: white; background: transparent; }
-.nav-btn.active svg { opacity: 1; }
+.nav-btn:active { transform: scale(0.96); }
+.nav-btn.active { color: #e9d5ff; background: rgba(161,0,255,0.18); }
+.nav-btn.active svg { opacity: 1; filter: drop-shadow(0 0 5px rgba(161,0,255,0.45)); }
 .nav-btn.active::before {
   content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
   width: 3px; height: 36px; background: var(--accent); border-radius: 0 2px 2px 0;
@@ -100,14 +112,18 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
   letter-spacing: 0.5px; padding: 8px 14px 4px;
 }
 .meeting-item {
-  display: flex; align-items: flex-start; gap: 8px; padding: 8px 14px;
-  cursor: pointer; border-radius: 0; transition: background 0.1s; position: relative;
+  display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px;
+  margin: 1px 8px; cursor: pointer; border-radius: var(--r-sm); transition: background 0.1s; position: relative;
 }
 .meeting-item:hover  { background: var(--surface2); }
 .meeting-item .btn-delete-meeting { display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 5px; border-radius: 4px; line-height: 1; }
 .meeting-item:hover .btn-delete-meeting { display: block; }
 .meeting-item .btn-delete-meeting:hover { color: #f38ba8; background: var(--surface2); }
-.meeting-item.active { background: #ede9fe; }
+.meeting-item.active { background: var(--accent-tint); }
+.meeting-item.active::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 0 3px 3px 0; background: var(--accent);
+}
 .meeting-item.active .meeting-title { color: var(--accent); font-weight: 600; }
 .meeting-time { font-size: 11px; color: var(--muted); min-width: 36px; margin-top: 1px; }
 .meeting-info { flex: 1; min-width: 0; }
@@ -141,7 +157,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
   background: var(--bg); position: sticky; top: 0; z-index: 10;
   display: flex; align-items: flex-start; justify-content: space-between;
 }
-.detail-title { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.detail-title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; color: var(--text); margin-bottom: 4px; }
 .detail-meta  { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .detail-project-wrap { display: flex; align-items: center; gap: 5px; }
 .detail-project-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
@@ -552,18 +568,18 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
 
 /* ── Sidebar mode toggle ── */
 .sidebar-mode-toggle {
-  display: flex; gap: 4px; padding: 6px 10px;
-  border-bottom: 1px solid var(--border); flex-shrink: 0;
+  display: flex; gap: 3px; margin: 8px 12px 4px;
+  padding: 3px; background: var(--surface2); border-radius: 7px; flex-shrink: 0;
 }
 .mode-btn {
-  flex: 1; padding: 4px 6px; border-radius: var(--radius);
-  border: 1px solid var(--border); background: transparent;
-  font-size: 10px; cursor: pointer; color: var(--subtext);
+  flex: 1; padding: 5px 6px; border-radius: 5px;
+  border: none; background: transparent;
+  font-size: 11px; cursor: pointer; color: var(--subtext);
   font-weight: 500; transition: all 0.15s; text-align: center;
   display: flex; align-items: center; justify-content: center; gap: 5px;
 }
-.mode-btn:hover  { border-color: var(--accent); color: var(--accent); }
-.mode-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+.mode-btn:hover  { color: var(--accent); }
+.mode-btn.active { background: var(--bg); color: var(--accent); box-shadow: var(--shadow); }
 
 /* ── Project groups in sidebar ── */
 .project-sidebar-group { margin-bottom: 2px; }
@@ -743,7 +759,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
   --yellow-border:#78350f;
   --shadow:       0 1px 3px rgba(0,0,0,0.4);
 }
-[data-theme="dark"] .meeting-item.active { background: #1e1b4b; }
+[data-theme="dark"] .meeting-item.active { background: rgba(161,0,255,0.18); }
 [data-theme="dark"] .minutes-content { color: var(--subtext); }
 [data-theme="dark"] .minutes-content h2,
 [data-theme="dark"] .minutes-content h3 { color: var(--text); }
