@@ -3623,16 +3623,14 @@ async function updatePipelineFooter() {
   dot.className = 'pipeline-tab-dot ' + (anyRecording ? 'recording' : 'processing');
 
   body.innerHTML = jobs.map(j => {
-    const dotClass  = j.stage === 'recording' ? 'recording' : 'processing';
-    const pct       = j.pct ?? null;
-    const spineH    = pct != null ? `${pct}%` : (j.stage === 'recording' ? '30%' : '60%');
+    const dotClass   = j.stage === 'recording' ? 'recording' : 'processing';
+    const pct        = j.pct ?? null;
     const stageLabel = j.stage_label || j.stage || '';
-    const progHtml  = pct != null
+    const progHtml   = pct != null
       ? `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:${pct}%"></div></div>`
-      : `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill shimmer"></div></div>`;
+      : `<div class="pipeline-job-progress" style="overflow:hidden;position:relative"><div class="pipeline-job-progress-fill shimmer"></div></div>`;
     return `
-      <div class="pipeline-job-card">
-        <div class="pipeline-job-spine"><div class="pipeline-job-spine-fill" style="height:${spineH}"></div></div>
+      <div class="pipeline-job-card ${dotClass}">
         <div class="pipeline-job-header">
           <span class="pipeline-job-dot ${dotClass}"></span>
           <span class="pipeline-job-label">${escHtml(j.label)}</span>
