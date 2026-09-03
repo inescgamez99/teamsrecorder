@@ -66,7 +66,7 @@ const T = {
     loading_actions: 'Cargando acciones...', no_meetings: 'No hay reuniones todavía',
     tab_notes: 'Notas', tab_transcript: 'Transcript', tab_actions: 'Gestionar acciones', section_actions: 'Acciones',
     copy_note: 'Copiar notas', copy_actions: 'Copiar acciones',
-    copy_transcript: 'Copiar transcript', copy_transcript_done: 'Copiado',
+    copy_transcript: 'Copiar transcript', copy_transcript_done: 'Copiado', copy_failed: 'Error al copiar',
     email_actions: 'Enviar acciones por email', email_transcript: 'Enviar transcript por email',
     more_actions: 'Más opciones',
     sticky_add: 'Añadir nota adhesiva', sticky_min: 'Minimizar', sticky_del: 'Eliminar', sticky_ph: 'Nota...',
@@ -251,7 +251,7 @@ const T = {
     loading_actions: 'Loading actions...', no_meetings: 'No meetings yet',
     tab_notes: 'Notes', tab_transcript: 'Transcript', tab_actions: 'Manage actions', section_actions: 'Actions',
     copy_note: 'Copy notes', copy_actions: 'Copy actions',
-    copy_transcript: 'Copy transcript', copy_transcript_done: 'Copied',
+    copy_transcript: 'Copy transcript', copy_transcript_done: 'Copied', copy_failed: 'Copy failed',
     email_actions: 'Send actions email', email_transcript: 'Send transcript email',
     more_actions: 'More options',
     sticky_add: 'Add sticky note', sticky_min: 'Minimize', sticky_del: 'Delete', sticky_ph: 'Note...',
@@ -941,42 +941,16 @@ async function openMeeting(path) {
   document.addEventListener('click', () => document.getElementById('action-menu')?.classList.add('hidden'));
 
   // Context-aware copy
-  document.getElementById('btn-copy').addEventListener('click', async () => {
+  document.getElementById('btn-copy').addEventListener('click', () => {
     const activeTab = document.querySelector('.detail-tab.active')?.dataset.tab || 'notes';
-    try {
-      if (activeTab === 'notes') {
-        const notesDiv = document.querySelector('.minutes-content');
-        if (!notesDiv) return;
-        const html = notesDiv.innerHTML;
-        const plain = notesDiv.innerText;
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            'text/html':  new Blob([html],  { type: 'text/html' }),
-            'text/plain': new Blob([plain], { type: 'text/plain' }),
-          })
-        ]);
-      } else if (activeTab === 'actions') {
-        const actionsDiv = document.getElementById('meeting-actions');
-        const html = actionsDiv ? actionsDiv.innerHTML : '';
-        const plain = actionsDiv ? actionsDiv.innerText : '';
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            'text/html':  new Blob([html],  { type: 'text/html' }),
-            'text/plain': new Blob([plain], { type: 'text/plain' }),
-          })
-        ]);
-      } else {
-        await navigator.clipboard.writeText(transcriptText || '');
-      }
-      showToast(t('copy_transcript_done'));
-    } catch (_) {
-      // Fallback to plain text if ClipboardItem not supported
-      try {
-        const el = activeTab === 'notes' ? document.querySelector('.minutes-content')
-                 : activeTab === 'actions' ? document.getElementById('meeting-actions') : null;
-        await navigator.clipboard.writeText(el ? el.innerText : transcriptText || '');
-        showToast(t('copy_transcript_done'));
-      } catch (_2) {}
+    if (activeTab === 'actions') {
+      const d = document.getElementById('meeting-actions');
+      _copyRich(d ? d.innerHTML : '', d ? d.innerText : '');
+    } else if (activeTab === 'transcript') {
+      _copyRich('', transcriptText || '');
+    } else {
+      const d = document.querySelector('.minutes-content');
+      _copyRich(d ? d.innerHTML : '', d ? d.innerText : '');
     }
   });
 
@@ -3837,6 +3811,40 @@ async function _reRenderNotes(path) {
   let html = '';
   try { html = await pywebview.api.get_minutes_html(path); } catch (_) {}
   sec.innerHTML = `<div class="minutes-content">${html ? sanitizeHtml(html) : `<em>${t('no_minutes')}</em>`}</div>`;
+}
+
+// ── Clipboard helpers (María's triple-fallback) ───────────────────────────────
+
+function _copyRich(html, text) {
+  const done = () => showToast(t('copy_transcript_done'));
+  const fail = () => showToast(t('copy_failed'));
+  if (navigator.clipboard && window.ClipboardItem && html) {
+    try {
+      const item = new ClipboardItem({
+        'text/html':  new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      });
+      navigator.clipboard.write([item]).then(done, () => _copyPlain(text, done, fail));
+      return;
+    } catch (_) {}
+  }
+  _copyPlain(text, done, fail);
+}
+
+function _copyPlain(text, done, fail) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => _copyExec(text, done, fail));
+  } else { _copyExec(text, done, fail); }
+}
+
+function _copyExec(text, done, fail) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) {}
+  ta.remove();
+  ok ? done() : fail();
 }
 
 // ── Sticky notes ──────────────────────────────────────────────────────────────
