@@ -119,6 +119,15 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
 .meeting-item .btn-delete-meeting { display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 5px; border-radius: 4px; line-height: 1; }
 .meeting-item:hover .btn-delete-meeting { display: block; }
 .meeting-item .btn-delete-meeting:hover { color: #f38ba8; background: var(--surface2); }
+.meeting-item .btn-pin-meeting {
+  display: none; position: absolute; right: 28px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  padding: 2px 4px; border-radius: 4px; line-height: 1;
+}
+.meeting-item:hover .btn-pin-meeting { display: block; }
+.meeting-item .btn-pin-meeting.pinned { display: block; color: var(--accent); }
+.meeting-item .btn-pin-meeting:hover { color: var(--accent); background: var(--accent-tint); }
+.day-label.pinned-label { color: var(--accent); font-weight: 700; }
 .meeting-item.active { background: var(--accent-tint); }
 .meeting-item.active::before {
   content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;

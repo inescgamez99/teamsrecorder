@@ -95,11 +95,42 @@ def _cleanup_old_tmp_dirs() -> None:
         pass
 
 
+def _pin_key(stem: str) -> str:
+    """Extrae YYYYMMDD_HHMM del stem del archivo como clave de pin."""
+    m = re.search(r'(\d{8}_\d{4})', stem)
+    return m.group(1) if m else stem
+
+
 class AppAPI:
     """API Python expuesta a JavaScript via pywebview."""
 
+    def _pins_path(self) -> Path:
+        return PROJECT_DIR / 'pins.json'
+
+    def _load_pins(self) -> set:
+        try:
+            p = self._pins_path()
+            if p.exists():
+                return set(json.loads(p.read_text(encoding='utf-8')))
+        except Exception:
+            pass
+        return set()
+
+    def toggle_pin(self, path: str) -> bool:
+        key = _pin_key(Path(path).stem)
+        pins = self._load_pins()
+        if key in pins:
+            pins.discard(key)
+            state = False
+        else:
+            pins.add(key)
+            state = True
+        self._pins_path().write_text(json.dumps(sorted(pins)), encoding='utf-8')
+        return state
+
     def get_meetings(self) -> list:
         """Lista todas las minutas agrupadas por fecha, con conteo de pendientes."""
+        pins = self._load_pins()
         meetings = []
         for md in sorted(MINUTES_DIR.glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
             meta = _parse_stem(md.stem)
@@ -124,6 +155,7 @@ class AppAPI:
                 'has_actions':   has_actions,
                 'pending_count': pending,
                 'project_id':    project_id,
+                'pinned':        _pin_key(md.stem) in pins,
             })
         return meetings
 

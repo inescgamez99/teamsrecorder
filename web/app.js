@@ -37,6 +37,7 @@ let _regenVisible        = false;
 
 // Sticky notes
 let _stickies = [];
+const _PIN_SVG = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>`;
 let _stickySaveTimer = null;
 
 // ── Internacionalización ──────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ const T = {
     email_actions: 'Enviar acciones por email', email_transcript: 'Enviar transcript por email',
     more_actions: 'Más opciones',
     sticky_add: 'Añadir nota adhesiva', sticky_min: 'Minimizar', sticky_del: 'Eliminar', sticky_ph: 'Nota...',
+    pin: 'Fijar reunión', unpin: 'Desfijar reunión', pinned: 'Fijadas',
     add_action: 'Añadir acción', toast_action_added: 'Acción añadida',
     action_title_ph: 'Descripción de la acción...', action_assignee_ph: 'Responsable (opcional)', action_deadline_ph: 'Fecha límite (opcional)',
     n_total: n => `${n} en total`,
@@ -255,6 +257,7 @@ const T = {
     email_actions: 'Send actions email', email_transcript: 'Send transcript email',
     more_actions: 'More options',
     sticky_add: 'Add sticky note', sticky_min: 'Minimize', sticky_del: 'Delete', sticky_ph: 'Note...',
+    pin: 'Pin meeting', unpin: 'Unpin meeting', pinned: 'Pinned',
     add_action: 'Add action', toast_action_added: 'Action added',
     action_title_ph: 'Action description...', action_assignee_ph: 'Owner (optional)', action_deadline_ph: 'Deadline (optional)',
     n_total: n => `${n} total`,
@@ -539,38 +542,23 @@ function renderSidebar(meetings) {
   }
 }
 
-function renderSidebarByDays(meetings) {
-  const list = document.getElementById('meetings-list');
-  if (!meetings.length) {
-    list.innerHTML = `<div class="loading">${t('no_meetings')}</div>`;
-    return;
-  }
+function _meetingItemHtml(m) {
+  const path = meetingPaths[m.idx] || '';
+  return `
+    <div class="meeting-item${m.pinned ? ' pinned' : ''}" data-midx="${m.idx}">
+      <div class="meeting-time">${m.time || ''}</div>
+      <div class="meeting-info">
+        <div class="meeting-title">${escHtml(m.title)}</div>
+      </div>
+      <button class="btn-pin-meeting${m.pinned ? ' pinned' : ''}" data-pin-path="${escHtml(path)}" title="${m.pinned ? t('unpin') : t('pin')}">${_PIN_SVG}</button>
+      <button class="btn-delete-meeting" data-del-path="${escHtml(path)}" title="${t('btn_delete_meeting')}">×</button>
+    </div>`;
+}
 
-  const groups = {};
-  meetings.forEach((m, idx) => {
-    const label = dayLabel(m.date);
-    if (!groups[label]) groups[label] = [];
-    groups[label].push({ ...m, idx });
-  });
-
-  list.innerHTML = Object.entries(groups).map(([label, items]) => `
-    <div class="day-group">
-      <div class="day-label">${label}</div>
-      ${items.map(m => `
-        <div class="meeting-item" data-midx="${m.idx}">
-          <div class="meeting-time">${m.time || ''}</div>
-          <div class="meeting-info">
-            <div class="meeting-title">${escHtml(m.title)}</div>
-          </div>
-          <button class="btn-delete-meeting" data-del-path="${escHtml(meetingPaths[m.idx] || '')}" title="${t('btn_delete_meeting')}">×</button>
-        </div>
-      `).join('')}
-    </div>
-  `).join('');
-
+function _wireSidebarItems(list) {
   list.querySelectorAll('.meeting-item').forEach(el => {
     el.addEventListener('click', e => {
-      if (e.target.closest('.btn-delete-meeting')) return;
+      if (e.target.closest('.btn-delete-meeting') || e.target.closest('.btn-pin-meeting')) return;
       const path = meetingPaths[parseInt(el.dataset.midx)];
       if (path) openMeeting(path);
     });
@@ -581,6 +569,15 @@ function renderSidebarByDays(meetings) {
       if (path) _showMeetingContextMenu(e, path, title, el);
     });
   });
+  list.querySelectorAll('.btn-pin-meeting').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await pywebview.api.toggle_pin(btn.dataset.pinPath);
+      const ms = await pywebview.api.get_meetings();
+      allMeetings = ms; meetingPaths = ms.map(m => m.path);
+      renderSidebar(allMeetings);
+    });
+  });
   list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
@@ -588,6 +585,42 @@ function renderSidebarByDays(meetings) {
       _confirmDeleteMeeting(p, (allMeetings.find(m => m.path === p) || {}).title || '', btn.closest('.meeting-item'));
     });
   });
+}
+
+function renderSidebarByDays(meetings) {
+  const list = document.getElementById('meetings-list');
+  if (!meetings.length) {
+    list.innerHTML = `<div class="loading">${t('no_meetings')}</div>`;
+    return;
+  }
+
+  const withIdx = meetings.map((m, i) => ({ ...m, idx: allMeetings.indexOf(m) !== -1 ? allMeetings.indexOf(m) : i }));
+  const pinned  = withIdx.filter(m => m.pinned);
+  const rest    = withIdx.filter(m => !m.pinned);
+
+  const groups = {};
+  rest.forEach(m => {
+    const label = dayLabel(m.date);
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(m);
+  });
+
+  let html = '';
+  if (pinned.length) {
+    html += `<div class="day-group">
+      <div class="day-label pinned-label">${t('pinned')}</div>
+      ${pinned.map(_meetingItemHtml).join('')}
+    </div>`;
+  }
+  html += Object.entries(groups).map(([label, items]) => `
+    <div class="day-group">
+      <div class="day-label">${label}</div>
+      ${items.map(_meetingItemHtml).join('')}
+    </div>
+  `).join('');
+
+  list.innerHTML = html;
+  _wireSidebarItems(list);
 }
 
 function renderSidebarByProject(meetings) {
