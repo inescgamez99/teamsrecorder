@@ -747,6 +747,27 @@ document.addEventListener('click', (e) => {
     }
   }
 });
+
+// ── Global keyboard shortcuts ─────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toUpperCase();
+  const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable;
+
+  // Ctrl+F → focus search (always, even from input)
+  if (e.ctrlKey && e.key === 'f') {
+    const search = document.getElementById('search-input');
+    if (search) { e.preventDefault(); showView('meetings'); search.focus(); search.select(); }
+    return;
+  }
+
+  if (inInput) return; // don't intercept nav shortcuts while typing
+
+  // Ctrl+1-5 → nav views
+  if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+    const navMap = { '1': 'meetings', '2': 'actions', '3': 'projects', '4': 'trash', '5': 'settings' };
+    if (navMap[e.key]) { e.preventDefault(); showView(navMap[e.key]); return; }
+  }
+});
 }
 
 function _showMeetingContextMenu(e, path, title, el) {
