@@ -943,16 +943,41 @@ async function openMeeting(path) {
   // Context-aware copy
   document.getElementById('btn-copy').addEventListener('click', async () => {
     const activeTab = document.querySelector('.detail-tab.active')?.dataset.tab || 'notes';
-    let text = '';
-    if (activeTab === 'transcript') text = transcriptText || '';
-    else if (activeTab === 'actions') {
-      const actionsDiv = document.getElementById('meeting-actions');
-      text = actionsDiv ? actionsDiv.innerText : '';
-    } else {
-      const notesDiv = document.querySelector('.minutes-content');
-      text = notesDiv ? notesDiv.innerText : '';
+    try {
+      if (activeTab === 'notes') {
+        const notesDiv = document.querySelector('.minutes-content');
+        if (!notesDiv) return;
+        const html = notesDiv.innerHTML;
+        const plain = notesDiv.innerText;
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html':  new Blob([html],  { type: 'text/html' }),
+            'text/plain': new Blob([plain], { type: 'text/plain' }),
+          })
+        ]);
+      } else if (activeTab === 'actions') {
+        const actionsDiv = document.getElementById('meeting-actions');
+        const html = actionsDiv ? actionsDiv.innerHTML : '';
+        const plain = actionsDiv ? actionsDiv.innerText : '';
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html':  new Blob([html],  { type: 'text/html' }),
+            'text/plain': new Blob([plain], { type: 'text/plain' }),
+          })
+        ]);
+      } else {
+        await navigator.clipboard.writeText(transcriptText || '');
+      }
+      showToast(t('copy_transcript_done'));
+    } catch (_) {
+      // Fallback to plain text if ClipboardItem not supported
+      try {
+        const el = activeTab === 'notes' ? document.querySelector('.minutes-content')
+                 : activeTab === 'actions' ? document.getElementById('meeting-actions') : null;
+        await navigator.clipboard.writeText(el ? el.innerText : transcriptText || '');
+        showToast(t('copy_transcript_done'));
+      } catch (_2) {}
     }
-    try { await navigator.clipboard.writeText(text); showToast(t('copy_transcript_done')); } catch (_) {}
   });
 
   // Context-aware email
