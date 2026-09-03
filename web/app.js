@@ -35,6 +35,10 @@ let searchTimeout        = null;
 // Panel de Claude
 let _regenVisible        = false;
 
+// Sticky notes
+let _stickies = [];
+let _stickySaveTimer = null;
+
 // ── Internacionalización ──────────────────────────────────────────────────────
 
 let currentLang = localStorage.getItem('lang') || 'es';
@@ -61,7 +65,11 @@ const T = {
     loading: 'Cargando...', loading_meetings: 'Cargando reuniones...',
     loading_actions: 'Cargando acciones...', no_meetings: 'No hay reuniones todavía',
     tab_notes: 'Notas', tab_transcript: 'Transcript', tab_actions: 'Gestionar acciones', section_actions: 'Acciones',
+    copy_note: 'Copiar notas', copy_actions: 'Copiar acciones',
     copy_transcript: 'Copiar transcript', copy_transcript_done: 'Copiado',
+    email_actions: 'Enviar acciones por email', email_transcript: 'Enviar transcript por email',
+    more_actions: 'Más opciones',
+    sticky_add: 'Añadir nota adhesiva', sticky_min: 'Minimizar', sticky_del: 'Eliminar', sticky_ph: 'Nota...',
     add_action: 'Añadir acción', toast_action_added: 'Acción añadida',
     action_title_ph: 'Descripción de la acción...', action_assignee_ph: 'Responsable (opcional)', action_deadline_ph: 'Fecha límite (opcional)',
     n_total: n => `${n} en total`,
@@ -145,7 +153,7 @@ const T = {
     account_settings_title: 'Cuenta',
     project_settings_title: 'Configuración de proyectos',
     no_projects: 'Sin proyectos',
-    sidebar_days: '📅 Días', sidebar_projects: '📁 Proyectos',
+    sidebar_days: 'Días', sidebar_projects: 'Proyectos',
     all_projects: 'Todos los proyectos',
     toast_model_saved: 'Modelo guardado. Reinicia para aplicar.',
     edit_btn: 'Editar', cancel_btn: 'Cancelar',
@@ -242,7 +250,11 @@ const T = {
     loading: 'Loading...', loading_meetings: 'Loading meetings...',
     loading_actions: 'Loading actions...', no_meetings: 'No meetings yet',
     tab_notes: 'Notes', tab_transcript: 'Transcript', tab_actions: 'Manage actions', section_actions: 'Actions',
+    copy_note: 'Copy notes', copy_actions: 'Copy actions',
     copy_transcript: 'Copy transcript', copy_transcript_done: 'Copied',
+    email_actions: 'Send actions email', email_transcript: 'Send transcript email',
+    more_actions: 'More options',
+    sticky_add: 'Add sticky note', sticky_min: 'Minimize', sticky_del: 'Delete', sticky_ph: 'Note...',
     add_action: 'Add action', toast_action_added: 'Action added',
     action_title_ph: 'Action description...', action_assignee_ph: 'Owner (optional)', action_deadline_ph: 'Deadline (optional)',
     n_total: n => `${n} total`,
@@ -326,7 +338,7 @@ const T = {
     account_settings_title: 'Account',
     project_settings_title: 'Project settings',
     no_projects: 'No projects yet',
-    sidebar_days: '📅 Days', sidebar_projects: '📁 Projects',
+    sidebar_days: 'Days', sidebar_projects: 'Projects',
     all_projects: 'All projects',
     toast_model_saved: 'Model saved. Restart to apply.',
     edit_btn: 'Edit', cancel_btn: 'Cancel',
@@ -801,17 +813,20 @@ function dayLabel(dateStr) {
 // ── Apertura de reunión ───────────────────────────────────────────────────────
 
 function _updateActionBar(tab) {
-  const perTab = {
-    notes:      ['btn-regenerate', 'btn-email', 'btn-html', 'btn-edit-notes'],
-    actions:    [],
-    transcript: ['btn-export-transcript', 'btn-copy-transcript'],
-  };
-  const visible = new Set(['btn-claude', ...(perTab[tab] || [])]);
-  ['btn-regenerate', 'btn-email', 'btn-html', 'btn-edit-notes',
-   'btn-export-transcript', 'btn-copy-transcript'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = visible.has(id) ? '' : 'none';
-  });
+  const editBtn = document.getElementById('btn-edit-notes');
+  const copyBtn = document.getElementById('btn-copy');
+  const mailBtn = document.getElementById('btn-email');
+  if (editBtn) {
+    editBtn.title = tab === 'transcript' ? t('export_transcript_btn')
+                  : tab === 'actions'    ? t('btn_reenrich')
+                  : t('btn_edit');
+  }
+  if (copyBtn) copyBtn.title = tab === 'actions'    ? t('copy_actions')
+                             : tab === 'transcript' ? t('copy_transcript')
+                             : t('copy_note');
+  if (mailBtn) mailBtn.title = tab === 'actions'    ? t('email_actions')
+                             : tab === 'transcript' ? t('email_transcript')
+                             : t('send_email');
 }
 
 async function openMeeting(path) {
@@ -858,12 +873,18 @@ async function openMeeting(path) {
         </div>
         <div class="detail-actions-bar">
           <button class="action-icon-btn action-icon-btn--accent" id="btn-claude" title="Claude"><svg width="16" height="16" viewBox="0 0 248 248" fill="currentColor"><path d="M52.4285 162.873L98.7844 136.879L99.5485 134.602L98.7844 133.334H96.4921L88.7237 132.862L62.2346 132.153L39.3113 131.207L17.0249 130.026L11.4214 128.844L6.2 121.873L6.7094 118.447L11.4214 115.257L18.171 115.847L33.0711 116.911L55.485 118.447L71.6586 119.392L95.728 121.873H99.5485L100.058 120.337L98.7844 119.392L97.7656 118.447L74.5877 102.732L49.4995 86.1905L36.3823 76.62L29.3779 71.7757L25.8121 67.2858L24.2839 57.3608L30.6515 50.2716L39.3113 50.8623L41.4763 51.4531L50.2636 58.1879L68.9842 72.7209L93.4357 90.6804L97.0015 93.6343L98.4374 92.6652L98.6571 91.9801L97.0015 89.2625L83.757 65.2772L69.621 40.8192L63.2534 30.6579L61.5978 24.632C60.9565 22.1032 60.579 20.0111 60.579 17.4246L67.8381 7.49965L71.9133 6.19995L81.7193 7.49965L85.7946 11.0443L91.9074 24.9865L101.714 46.8451L116.996 76.62L121.453 85.4816L123.873 93.6343L124.764 96.1155H126.292V94.6976L127.566 77.9197L129.858 57.3608L132.15 30.8942L132.915 23.4505L136.608 14.4708L143.994 9.62643L149.725 12.344L154.437 19.0788L153.8 23.4505L150.998 41.6463L145.522 70.1215L141.957 89.2625H143.994L146.414 86.7813L156.093 74.0206L172.266 53.698L179.398 45.6635L187.803 36.802L193.152 32.5484H203.34L210.726 43.6549L207.415 55.1159L196.972 68.3492L188.312 79.5739L175.896 96.2095L168.191 109.585L168.882 110.689L170.738 110.53L198.755 104.504L213.91 101.787L231.994 98.7149L240.144 102.496L241.036 106.395L237.852 114.311L218.495 119.037L195.826 123.645L162.07 131.592L161.696 131.893L162.137 132.547L177.36 133.925L183.855 134.279H199.774L229.447 136.524L237.215 141.605L241.8 147.867L241.036 152.711L229.065 158.737L213.019 154.956L175.45 145.977L162.587 142.787H160.805V143.85L171.502 154.366L191.242 172.089L215.82 195.011L217.094 200.682L213.91 205.172L210.599 204.699L188.949 188.394L180.544 181.069L161.696 165.118H160.422V166.772L164.752 173.152L187.803 207.771L188.949 218.405L187.294 221.832L181.308 223.959L174.813 222.777L161.187 203.754L147.305 182.486L136.098 163.345L134.745 164.2L128.075 235.42L125.019 239.082L117.887 241.8L111.902 237.31L108.718 229.984L111.902 215.452L115.722 196.547L118.779 181.541L121.58 162.873L123.291 156.636L123.14 156.219L121.773 156.449L107.699 175.752L86.304 204.699L69.3663 222.777L65.291 224.431L58.2867 220.768L58.9235 214.27L62.8713 208.48L86.304 178.705L100.44 160.155L109.551 149.507L109.462 147.967L108.959 147.924L46.6977 188.512L35.6182 189.93L30.7788 185.44L31.4156 178.115L33.7079 175.752L52.4285 162.873Z"/></svg></button>
-          <button class="action-icon-btn" id="btn-regenerate" title="${t('btn_regenerate')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg></button>
-          <button class="action-icon-btn" id="btn-email" title="Email"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
-          <button class="action-icon-btn action-icon-btn--text" id="btn-html" title="HTML">HTML</button>
-          <button class="action-icon-btn" id="btn-export-transcript" title="${t('export_transcript_btn')}" style="display:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
           <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="action-icon-btn" id="btn-copy-transcript" title="${t('copy_transcript')}" style="display:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+          <button class="action-icon-btn" id="btn-copy" title="${t('copy_note')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+          <button class="action-icon-btn" id="btn-email" title="${t('send_email')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+          <div class="action-more-wrap">
+            <button class="action-icon-btn" id="btn-more" title="${t('more_actions')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+            <div class="action-menu hidden" id="action-menu">
+              <button class="action-menu-item" id="btn-sticky"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-6a1 1 0 0 1 1-1h6"/></svg><span>${t('sticky_add')}</span></button>
+              <button class="action-menu-item" id="btn-regenerate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg><span>${t('btn_regenerate')}</span></button>
+              <button class="action-menu-item" id="btn-html"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>HTML</span></button>
+              <button class="action-menu-item" id="btn-export-transcript"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>${t('export_transcript_btn')}</span></button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="regen-bar hidden" id="regen-bar">
@@ -886,8 +907,8 @@ async function openMeeting(path) {
       <div class="actions-section hidden" id="section-actions">
         <div class="actions-section-header">
           <div class="section-label">${t('section_actions')}</div>
-          <div class="actions-count">${t('n_total', actions ? actions.length : 0)}</div>
-          <button class="btn btn-ghost btn-sm" id="btn-add-action" style="margin-left:auto">+ ${t('add_action')}</button>
+          <div class="actions-count" style="margin-left:auto">${t('n_total', actions ? actions.length : 0)}</div>
+          <button class="btn btn-ghost btn-sm" id="btn-add-action" style="margin-left:8px">+ ${t('add_action')}</button>
         </div>
         <div id="add-action-form" class="add-action-form" style="display:none"></div>
         <div id="meeting-actions"></div>
@@ -895,22 +916,55 @@ async function openMeeting(path) {
       <div class="transcript-section hidden" id="section-transcript">
         <div class="transcript-content">${transcriptText ? escHtml(transcriptText) : `<em style="color:var(--muted)">${t('no_minutes')}</em>`}</div>
       </div>
+      <div id="sticky-layer" class="sticky-layer"></div>
     </div>`;
 
-  document.getElementById('btn-email').addEventListener('click', () => sendEmail(path));
   document.getElementById('btn-html').addEventListener('click', () => openHtml(path));
   document.getElementById('btn-export-transcript').addEventListener('click', () => exportTranscript(path));
   document.getElementById('btn-claude').addEventListener('click', () => openMinutesInClaude(path));
-  document.getElementById('btn-regenerate').addEventListener('click', () => toggleRegenBar());
+  document.getElementById('btn-regenerate').addEventListener('click', () => { document.getElementById('action-menu').classList.add('hidden'); toggleRegenBar(); });
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
   document.getElementById('btn-edit-notes').addEventListener('click', () => toggleEditNotes(path));
-  document.getElementById('btn-copy-transcript')?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(transcriptText || '');
-      showToast(t('copy_transcript_done'));
-    } catch (_) {}
+
+  // More dropdown toggle
+  document.getElementById('btn-more').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('action-menu').classList.toggle('hidden');
   });
+  document.addEventListener('click', () => document.getElementById('action-menu')?.classList.add('hidden'));
+
+  // Context-aware copy
+  document.getElementById('btn-copy').addEventListener('click', async () => {
+    const activeTab = document.querySelector('.detail-tab.active')?.dataset.tab || 'notes';
+    let text = '';
+    if (activeTab === 'transcript') text = transcriptText || '';
+    else if (activeTab === 'actions') {
+      const actionsDiv = document.getElementById('meeting-actions');
+      text = actionsDiv ? actionsDiv.innerText : '';
+    } else {
+      const notesDiv = document.querySelector('.minutes-content');
+      text = notesDiv ? notesDiv.innerText : '';
+    }
+    try { await navigator.clipboard.writeText(text); showToast(t('copy_transcript_done')); } catch (_) {}
+  });
+
+  // Context-aware email
+  document.getElementById('btn-email').addEventListener('click', () => {
+    const activeTab = document.querySelector('.detail-tab.active')?.dataset.tab || 'notes';
+    if (activeTab === 'actions') sendActionsEmail(path);
+    else if (activeTab === 'transcript') sendTranscriptEmail(path);
+    else sendEmail(path);
+  });
+
+  // Sticky note button
+  document.getElementById('btn-sticky').addEventListener('click', () => {
+    document.getElementById('action-menu').classList.add('hidden');
+    addSticky();
+  });
+
+  // Load stickies for this meeting
+  _loadStickies(path);
 
   requestAnimationFrame(() => {
     const header = panel.querySelector('.detail-header');
@@ -943,7 +997,6 @@ async function openMeeting(path) {
   } else {
     actionsDiv.innerHTML = `<div style="color:var(--muted);font-size:13px;margin-bottom:10px">${t('no_actions')}</div>`;
   }
-  _renderAddActionBtn(path, actionsDiv);
 }
 
 // ── Añadir acción manual a una reunión ────────────────────────────────────────
@@ -2942,6 +2995,23 @@ async function sendEmail(path) {
   await pywebview.api.send_email(path);
 }
 
+async function sendActionsEmail(path) {
+  try {
+    const meeting = allMeetings.find(m => m.path === path) || {};
+    const actions = await pywebview.api.get_actions(path);
+    showToast(t('toast_outlook'));
+    await pywebview.api.send_actions_email(path, meeting.title || '', meeting.date || '', actions || []);
+  } catch (e) { showToast('Error: ' + e); }
+}
+
+async function sendTranscriptEmail(path) {
+  try {
+    const meeting = allMeetings.find(m => m.path === path) || {};
+    showToast(t('toast_outlook'));
+    await pywebview.api.send_transcript_email(path, meeting.title || '', meeting.date || '');
+  } catch (e) { showToast('Error: ' + e); }
+}
+
 async function onMeetingProjectChange(projectId) {
   if (!currentPath) return;
   await pywebview.api.set_meeting_project(currentPath, projectId);
@@ -3736,4 +3806,77 @@ async function _reRenderNotes(path) {
   let html = '';
   try { html = await pywebview.api.get_minutes_html(path); } catch (_) {}
   sec.innerHTML = `<div class="minutes-content">${html ? sanitizeHtml(html) : `<em>${t('no_minutes')}</em>`}</div>`;
+}
+
+// ── Sticky notes ──────────────────────────────────────────────────────────────
+
+async function _loadStickies(path) {
+  const layer = document.getElementById('sticky-layer');
+  if (!layer) return;
+  try { _stickies = (await pywebview.api.get_stickies(path)) || []; }
+  catch (_) { _stickies = []; }
+  layer.innerHTML = _stickies.map(_stickyHtml).join('');
+  _wireStickies();
+}
+
+function _stickyHtml(s) {
+  return `<div class="sticky-note${s.minimized ? ' min' : ''}" data-sid="${escHtml(s.id)}">
+    <div class="sticky-head">
+      <span class="sticky-preview">${escHtml((s.text || '').split('\n')[0].slice(0, 28))}</span>
+      <button class="sticky-btn sticky-min" title="${t('sticky_min')}">${s.minimized ? '+' : '–'}</button>
+      <button class="sticky-btn sticky-del" title="${t('sticky_del')}">×</button>
+    </div>
+    <textarea class="sticky-body" placeholder="${t('sticky_ph')}" spellcheck="false">${escHtml(s.text || '')}</textarea>
+  </div>`;
+}
+
+function _wireStickies() {
+  const layer = document.getElementById('sticky-layer');
+  if (!layer) return;
+  layer.querySelectorAll('.sticky-note').forEach(node => {
+    const id = node.dataset.sid;
+    const ta = node.querySelector('.sticky-body');
+    node.querySelector('.sticky-del').onclick = () => {
+      _stickies = _stickies.filter(x => x.id !== id);
+      node.remove();
+      _saveStickies();
+    };
+    node.querySelector('.sticky-min').onclick = (e) => {
+      const s = _stickies.find(x => x.id === id);
+      if (!s) return;
+      s.minimized = !s.minimized;
+      node.classList.toggle('min', s.minimized);
+      e.currentTarget.textContent = s.minimized ? '+' : '–';
+      const prev = node.querySelector('.sticky-preview');
+      if (prev) prev.textContent = (ta.value || '').split('\n')[0].slice(0, 28);
+      _saveStickies();
+    };
+    if (ta) ta.oninput = () => {
+      const found = _stickies.find(x => x.id === id);
+      if (found) found.text = ta.value;
+      _saveStickies();
+    };
+  });
+}
+
+function addSticky() {
+  if (!currentPath) return;
+  const layer = document.getElementById('sticky-layer');
+  if (!layer) return;
+  const s = { id: 'st' + Date.now(), text: '', minimized: false };
+  _stickies.push(s);
+  layer.insertAdjacentHTML('beforeend', _stickyHtml(s));
+  _wireStickies();
+  _saveStickies();
+  const ta = layer.querySelector(`.sticky-note[data-sid="${s.id}"] .sticky-body`);
+  if (ta) ta.focus();
+}
+
+function _saveStickies() {
+  clearTimeout(_stickySaveTimer);
+  const path = currentPath;
+  const snap = JSON.parse(JSON.stringify(_stickies));
+  _stickySaveTimer = setTimeout(() => {
+    try { pywebview.api.save_stickies(path, snap); } catch (_) {}
+  }, 400);
 }

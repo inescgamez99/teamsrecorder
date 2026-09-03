@@ -1096,6 +1096,40 @@ class AppAPI:
             log.error(f"send_email: {e}")
             return False
 
+    def send_actions_email(self, path: str, title: str, date_str: str, actions: list) -> bool:
+        try:
+            from outlook_sender import send_actions_email as _send
+            from config import get_ui_language
+            return _send(title, date_str, actions, [], language=get_ui_language())
+        except Exception as e:
+            log.error(f"send_actions_email: {e}")
+            return False
+
+    def send_transcript_email(self, path: str, title: str, date_str: str) -> bool:
+        try:
+            from outlook_sender import send_transcript_email as _send
+            from config import get_ui_language
+            md_path = Path(path)
+            transcript = md_path.parent / f"{md_path.stem}_transcript.txt"
+            if not transcript.exists():
+                m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+                if m:
+                    y, mo, d, hh, mm = m.groups()
+                    stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+                    for folder in (RECORDINGS_DIR / 'processed', RECORDINGS_DIR):
+                        if not folder.exists():
+                            continue
+                        candidates = list(folder.glob(f"{stem}*_transcript.txt"))
+                        if candidates:
+                            transcript = candidates[0]
+                            break
+            if not transcript.exists():
+                return False
+            return _send(title, date_str, transcript, [], language=get_ui_language())
+        except Exception as e:
+            log.error(f"send_transcript_email: {e}")
+            return False
+
     def regenerate_minutes(self, path: str, extra_context: str, lang: str = '') -> bool:
         """Regenera las minutas de una reunión usando el transcript original y contexto adicional."""
         md_path = Path(path)
@@ -1322,6 +1356,24 @@ class AppAPI:
             return ''
         except Exception:
             return ''
+
+    def get_stickies(self, path: str) -> list:
+        try:
+            import json as _json
+            stickies_path = Path(path).parent / f"{Path(path).stem}.stickies.json"
+            if stickies_path.exists():
+                return _json.loads(stickies_path.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+        return []
+
+    def save_stickies(self, path: str, stickies: list) -> None:
+        try:
+            import json as _json
+            stickies_path = Path(path).parent / f"{Path(path).stem}.stickies.json"
+            stickies_path.write_text(_json.dumps(stickies), encoding='utf-8')
+        except Exception:
+            pass
 
     def export_transcript_file(self, path: str) -> str:
         """Abre un diálogo Guardar Como y exporta el transcript de la reunión al destino elegido.
