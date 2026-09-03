@@ -1304,6 +1304,25 @@ class AppAPI:
         """Devuelve el progreso de una importación en curso: {pct, stage, done, error, path}."""
         return _import_runs.get(run_id, {'pct': 0, 'stage': '', 'done': False, 'error': '', 'path': ''})
 
+    def get_transcript_text(self, path: str) -> str:
+        try:
+            md_path = Path(path)
+            stem = md_path.stem
+            transcript = md_path.parent / f"{stem}_transcript.txt"
+            if transcript.exists():
+                return transcript.read_text(encoding='utf-8')
+            from config import RECORDINGS_DIR
+            for folder in (RECORDINGS_DIR / 'processed', RECORDINGS_DIR):
+                for ext in ('_transcript.txt', '.txt'):
+                    candidate = folder / f"{stem}{ext}"
+                    if candidate.exists():
+                        return candidate.read_text(encoding='utf-8')
+                for lang_candidate in folder.glob(f"{stem}*.txt"):
+                    return lang_candidate.read_text(encoding='utf-8')
+            return ''
+        except Exception:
+            return ''
+
     def export_transcript_file(self, path: str) -> str:
         """Abre un diálogo Guardar Como y exporta el transcript de la reunión al destino elegido.
         Devuelve 'ok', 'cancelled', 'no_transcript' o 'error'."""

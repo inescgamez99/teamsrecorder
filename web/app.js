@@ -60,7 +60,8 @@ const T = {
     empty_sub: 'Elige una reunión de la lista para ver sus minutas y acciones',
     loading: 'Cargando...', loading_meetings: 'Cargando reuniones...',
     loading_actions: 'Cargando acciones...', no_meetings: 'No hay reuniones todavía',
-    tab_notes: 'Notas', tab_actions: 'Gestionar acciones', section_actions: 'Acciones',
+    tab_notes: 'Notas', tab_transcript: 'Transcript', tab_actions: 'Gestionar acciones', section_actions: 'Acciones',
+    copy_transcript: 'Copiar transcript', copy_transcript_done: 'Copiado',
     add_action: 'Añadir acción', toast_action_added: 'Acción añadida',
     action_title_ph: 'Descripción de la acción...', action_assignee_ph: 'Responsable (opcional)', action_deadline_ph: 'Fecha límite (opcional)',
     n_total: n => `${n} en total`,
@@ -240,7 +241,8 @@ const T = {
     empty_sub: 'Choose a meeting from the list to view its notes and actions',
     loading: 'Loading...', loading_meetings: 'Loading meetings...',
     loading_actions: 'Loading actions...', no_meetings: 'No meetings yet',
-    tab_notes: 'Notes', tab_actions: 'Manage actions', section_actions: 'Actions',
+    tab_notes: 'Notes', tab_transcript: 'Transcript', tab_actions: 'Manage actions', section_actions: 'Actions',
+    copy_transcript: 'Copy transcript', copy_transcript_done: 'Copied',
     add_action: 'Add action', toast_action_added: 'Action added',
     action_title_ph: 'Action description...', action_assignee_ph: 'Owner (optional)', action_deadline_ph: 'Deadline (optional)',
     n_total: n => `${n} total`,
@@ -798,6 +800,20 @@ function dayLabel(dateStr) {
 
 // ── Apertura de reunión ───────────────────────────────────────────────────────
 
+function _updateActionBar(tab) {
+  const perTab = {
+    notes:      ['btn-regenerate', 'btn-email', 'btn-html', 'btn-edit-notes'],
+    actions:    [],
+    transcript: ['btn-export-transcript', 'btn-copy-transcript'],
+  };
+  const visible = new Set(['btn-claude', ...(perTab[tab] || [])]);
+  ['btn-regenerate', 'btn-email', 'btn-html', 'btn-edit-notes',
+   'btn-export-transcript', 'btn-copy-transcript'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = visible.has(id) ? '' : 'none';
+  });
+}
+
 async function openMeeting(path) {
   currentPath = path;
   _regenVisible = false;
@@ -811,9 +827,10 @@ async function openMeeting(path) {
   const panel = document.getElementById('main-panel');
   panel.innerHTML = `<div class="loading">${t('loading')}</div>`;
 
-  const [minutesHtml, actions] = await Promise.all([
+  const [minutesHtml, actions, transcriptText] = await Promise.all([
     pywebview.api.get_minutes_html(path),
     pywebview.api.get_actions(path),
+    pywebview.api.get_transcript_text(path).catch(() => null),
   ]);
 
   const meeting = allMeetings.find(m => m.path === path) || {};
@@ -844,8 +861,9 @@ async function openMeeting(path) {
           <button class="action-icon-btn" id="btn-regenerate" title="${t('btn_regenerate')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg></button>
           <button class="action-icon-btn" id="btn-email" title="Email"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
           <button class="action-icon-btn action-icon-btn--text" id="btn-html" title="HTML">HTML</button>
-          <button class="action-icon-btn" id="btn-export-transcript" title="${t('export_transcript_btn')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          <button class="action-icon-btn" id="btn-export-transcript" title="${t('export_transcript_btn')}" style="display:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
           <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="action-icon-btn" id="btn-copy-transcript" title="${t('copy_transcript')}" style="display:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         </div>
       </div>
       <div class="regen-bar hidden" id="regen-bar">
@@ -860,6 +878,7 @@ async function openMeeting(path) {
         <button class="detail-tab" id="tab-actions" data-tab="actions">
           ${t('tab_actions')} ${pendingCount > 0 ? `<span class="tab-badge">${pendingCount}</span>` : ''}
         </button>
+        <button class="detail-tab" id="tab-transcript" data-tab="transcript">${t('tab_transcript')}</button>
       </div>
       <div class="minutes-section" id="section-notes">
         <div class="minutes-content">${minutesHtml ? sanitizeHtml(minutesHtml) : `<em>${t('no_minutes')}</em>`}</div>
@@ -873,6 +892,9 @@ async function openMeeting(path) {
         <div id="add-action-form" class="add-action-form" style="display:none"></div>
         <div id="meeting-actions"></div>
       </div>
+      <div class="transcript-section hidden" id="section-transcript">
+        <div class="transcript-content">${transcriptText ? escHtml(transcriptText) : `<em style="color:var(--muted)">${t('no_minutes')}</em>`}</div>
+      </div>
     </div>`;
 
   document.getElementById('btn-email').addEventListener('click', () => sendEmail(path));
@@ -883,7 +905,12 @@ async function openMeeting(path) {
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
   document.getElementById('btn-edit-notes').addEventListener('click', () => toggleEditNotes(path));
-
+  document.getElementById('btn-copy-transcript')?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(transcriptText || '');
+      showToast(t('copy_transcript_done'));
+    } catch (_) {}
+  });
 
   requestAnimationFrame(() => {
     const header = panel.querySelector('.detail-header');
@@ -891,14 +918,18 @@ async function openMeeting(path) {
     if (header && tabs) tabs.style.top = header.offsetHeight + 'px';
   });
 
+  _updateActionBar('notes');
+
   // Tabs: sub-pantallas exclusivas
   document.querySelectorAll('.detail-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      const isNotes = tab.dataset.tab === 'notes';
-      document.getElementById('section-notes').classList.toggle('hidden', !isNotes);
-      document.getElementById('section-actions').classList.toggle('hidden', isNotes);
+      const which = tab.dataset.tab;
+      document.getElementById('section-notes').classList.toggle('hidden', which !== 'notes');
+      document.getElementById('section-actions').classList.toggle('hidden', which !== 'actions');
+      document.getElementById('section-transcript').classList.toggle('hidden', which !== 'transcript');
+      _updateActionBar(which);
       panel.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
