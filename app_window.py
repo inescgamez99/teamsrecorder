@@ -31,6 +31,9 @@ _action_runs: dict = {}
 # Estado de regeneración de minutas: path -> {pct, stage_key, done, error}
 _regen_runs: dict = {}
 
+# Estado de sincronización de memoria de proyecto: project_id -> {total, current, name, count, done, cancelled, error}
+_sync_runs: dict = {}
+
 # Watchers para acciones completadas desde terminal externo
 _terminal_watchers: dict = {}       # (path, index) -> True
 _terminal_completions: list = []    # [{path, index, title}] pendientes de notificar a JS
@@ -95,8 +98,68 @@ def _cleanup_old_tmp_dirs() -> None:
 class AppAPI:
     """API Python expuesta a JavaScript via pywebview."""
 
+    def _pins_path(self):
+        return PROJECT_DIR / 'pins.json'
+
+    def _load_pins(self) -> set:
+        try:
+            p = self._pins_path()
+            if p.exists():
+                return set(json.loads(p.read_text(encoding='utf-8')))
+        except Exception:
+            pass
+        return set()
+
+    def toggle_pin(self, path: str) -> bool:
+        """Fija/desfija una reunión (clave = marca de tiempo, sobrevive a
+        renombrados). Devuelve el nuevo estado: True = fijada."""
+        key = _pin_key(Path(path).stem)
+        pins = self._load_pins()
+        if key in pins:
+            pins.discard(key); state = False
+        else:
+            pins.add(key); state = True
+        try:
+            self._pins_path().write_text(json.dumps(sorted(pins), ensure_ascii=False), encoding='utf-8')
+        except Exception as e:
+            log.warning(f"toggle_pin: {e}")
+        return state
+
+    def _stickies_path(self):
+        return PROJECT_DIR / 'stickies.json'
+
+    def get_stickies(self, path: str) -> list:
+        """Devuelve los post-its de una reunión (clave = marca de tiempo)."""
+        key = _pin_key(Path(path).stem)
+        try:
+            p = self._stickies_path()
+            if p.exists():
+                return json.loads(p.read_text(encoding='utf-8')).get(key, [])
+        except Exception:
+            pass
+        return []
+
+    def save_stickies(self, path: str, stickies: list) -> bool:
+        """Guarda (o borra si lista vacía) los post-its de una reunión."""
+        key = _pin_key(Path(path).stem)
+        p = self._stickies_path()
+        try:
+            data = {}
+            if p.exists():
+                data = json.loads(p.read_text(encoding='utf-8'))
+            if stickies:
+                data[key] = stickies
+            else:
+                data.pop(key, None)
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.warning(f"save_stickies: {e}")
+            return False
+
     def get_meetings(self) -> list:
         """Lista todas las minutas agrupadas por fecha, con conteo de pendientes."""
+        pins = self._load_pins()
         meetings = []
         for md in sorted(MINUTES_DIR.glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
             meta = _parse_stem(md.stem)
@@ -121,6 +184,7 @@ class AppAPI:
                 'has_actions':   has_actions,
                 'pending_count': pending,
                 'project_id':    project_id,
+                'pinned':        _pin_key(md.stem) in pins,
             })
         return meetings
 
@@ -154,6 +218,57 @@ class AppAPI:
         from actions_enricher import load_enriched
         acts = load_enriched(Path(path))
         return acts or []
+
+    def _find_transcript_file(self, md_path: Path) -> Path | None:
+        """Localiza el fichero de transcripción de una reunión."""
+        # 1) Copia junto a las notas: <stem>_transcript.txt
+        tpath = md_path.with_name(md_path.stem + '_transcript.txt')
+        if tpath.exists():
+            return tpath
+        # 2) Por prefijo de fecha/hora en minutes/ (por si se renombró)
+        m = re.match(r'(\d{8}_\d{4})_', md_path.stem)
+        if m:
+            cands = list(md_path.parent.glob(f"{m.group(1)}_*_transcript.txt"))
+            if cands:
+                return cands[0]
+        # 3) Fallback en recordings/processed y recordings/
+        m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
+        if m:
+            y, mo, d, hh, mm = m.groups()
+            stem = f"{y}-{mo}-{d}_{hh}-{mm}"
+            for folder in ('recordings/processed', 'recordings'):
+                fp = PROJECT_DIR / folder
+                if fp.exists():
+                    cands = list(fp.glob(f"{stem}*_transcript.txt"))
+                    if cands:
+                        return cands[0]
+        return None
+
+    def get_transcript(self, path: str) -> dict:
+        """Devuelve el texto de la transcripción y la ruta de su fichero."""
+        tpath = self._find_transcript_file(Path(path))
+        text = ''
+        if tpath and tpath.exists():
+            try:
+                text = tpath.read_text(encoding='utf-8')
+            except Exception as e:
+                log.warning(f"get_transcript: {e}")
+        return {'text': text, 'path': str(tpath) if tpath else ''}
+
+    def reveal_in_explorer(self, file_path: str) -> bool:
+        """Abre el Explorador de Windows con el fichero seleccionado."""
+        try:
+            p = Path(file_path)
+            if not p.exists():
+                return False
+            if os.name == 'nt':
+                subprocess.Popen(f'explorer /select,"{p}"')
+            else:
+                subprocess.Popen(['xdg-open', str(p.parent)])
+            return True
+        except Exception as e:
+            log.warning(f"reveal_in_explorer: {e}")
+            return False
 
     def pick_folder(self) -> str:
         """Abre el explorador de carpetas nativo de Windows. Devuelve la ruta o ''."""
@@ -344,6 +459,27 @@ class AppAPI:
             return True
         except Exception as e:
             log.error(f"delete_action: {e}")
+            return False
+
+    def update_meeting_action(self, path: str, index: int, updates: dict) -> bool:
+        """Actualiza campos editables (título, responsable, deadline) de una acción."""
+        from actions_enricher import get_actions_path
+        ap = get_actions_path(Path(path))
+        if not ap.exists():
+            return False
+        allowed = {'title', 'assignee', 'deadline'}
+        try:
+            data = json.loads(ap.read_text(encoding='utf-8'))
+            for a in data.get('actions', []):
+                if a['index'] == index:
+                    for k, v in (updates or {}).items():
+                        if k in allowed:
+                            a[k] = v
+                    break
+            ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"update_meeting_action: {e}")
             return False
 
     def move_to_panel(self, path: str, index: int) -> bool:
@@ -570,6 +706,42 @@ class AppAPI:
         except Exception:
             return []
 
+    def start_project_sync(self, project_id: str) -> dict:
+        """Lanza la sincronización de la memoria del proyecto en segundo plano
+        (con progreso y cancelable). No bloquea."""
+        cur = _sync_runs.get(project_id)
+        if cur and not cur.get('done'):
+            return {'ok': True, 'already': True}
+        _sync_runs[project_id] = {'total': 0, 'current': 0, 'name': '',
+                                  'count': 0, 'done': False, 'cancelled': False, 'error': ''}
+
+        def _run():
+            import project_context as pc
+            st = _sync_runs[project_id]
+            proj = next((p for p in pc.load_projects() if p.get('id') == project_id), None)
+            if not proj:
+                st['error'] = 'not_found'; st['done'] = True; return
+            try:
+                def prog(cur_i, total, name):
+                    st['current'] = cur_i; st['total'] = total; st['name'] = name
+                st['count'] = pc.sync_project_docs(
+                    proj, progress_cb=prog, should_cancel=lambda: st['cancelled'])
+            except Exception as e:
+                st['error'] = str(e)
+                log.warning(f"start_project_sync: {e}")
+            st['done'] = True
+
+        threading.Thread(target=_run, daemon=True, name=f'ProjSync-{project_id}').start()
+        return {'ok': True}
+
+    def get_project_sync_status(self, project_id: str) -> dict:
+        return _sync_runs.get(project_id, {'done': True, 'total': 0, 'current': 0, 'count': 0})
+
+    def cancel_project_sync(self, project_id: str) -> bool:
+        if project_id in _sync_runs:
+            _sync_runs[project_id]['cancelled'] = True
+        return True
+
     def save_project(self, project: dict) -> bool:
         """Create or update a project. project must have: name, description, stakeholders (list of emails). id is auto-generated from name if absent."""
         import re as _re
@@ -652,6 +824,46 @@ class AppAPI:
         except Exception as e:
             log.warning(f"delete_meeting: {e}")
             return False
+
+    def rename_meeting(self, path: str, new_title: str) -> dict:
+        """Renombra el título de una reunión. El título vive en el nombre del
+        fichero (YYYYMMDD_HHMM_<slug>), así que renombra todos los ficheros de la
+        minuta conservando el prefijo de fecha/hora. Devuelve
+        {'ok': bool, 'path': str} o {'ok': False, 'error': str}."""
+        from storage import _slugify
+        md_path = Path(path)
+        new_title = (new_title or '').strip()
+        if not md_path.exists():
+            return {'ok': False, 'error': 'not_found'}
+        if not new_title:
+            return {'ok': False, 'error': 'empty'}
+
+        stem = md_path.stem
+        m = re.match(r'(\d{8}_\d{4})_', stem)
+        prefix = m.group(1) if m else None
+        slug = _slugify(new_title)
+        if not slug:
+            return {'ok': False, 'error': 'empty'}
+        new_stem = f"{prefix}_{slug}" if prefix else slug
+        if new_stem == stem:
+            return {'ok': True, 'path': str(md_path)}  # sin cambios reales
+
+        new_md = md_path.parent / f"{new_stem}.md"
+        if new_md.exists():
+            return {'ok': False, 'error': 'exists'}
+
+        suffixes = ['.md', '.html', '_actions.json', '_transcript.txt']
+        renamed = 0
+        for suf in suffixes:
+            old_f = md_path.parent / f"{stem}{suf}"
+            if old_f.exists():
+                try:
+                    old_f.rename(md_path.parent / f"{new_stem}{suf}")
+                    renamed += 1
+                except Exception as e:
+                    log.warning(f"rename_meeting {suf}: {e}")
+        log.info(f"rename_meeting: {stem} → {new_stem} ({renamed} ficheros)")
+        return {'ok': True, 'path': str(new_md)}
 
     def list_trash(self) -> list:
         """Devuelve las reuniones en la papelera, más recientes primero."""
@@ -925,83 +1137,18 @@ class AppAPI:
         ]
         ps1.write_bytes(('\n'.join(ps1_lines)).encode('utf-8-sig'))
 
+        # Consola nueva de PowerShell (ventana visible garantizada) — más fiable que
+        # 'wt', que como alias de WindowsApps a veces "arranca" sin mostrar nada.
+        # -NoExit deja la ventana abierta aunque claude termine o dé error.
+        CREATE_NEW_CONSOLE = 0x00000010
         try:
-            subprocess.Popen([
-                'wt', '--window', '0', 'new-tab',
-                _PWSH, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(ps1)
-            ])
-        except FileNotFoundError:
-            subprocess.Popen([_PWSH, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(ps1)])
-
-        return True
-
-    def open_minutes_in_claude_app(self, path: str, lang: str = 'es') -> bool:
-        """Copia el transcript al portapapeles listo para pegar en Claude y abre claude.ai."""
-        import webbrowser
-        md_path = Path(path)
-        if not md_path.exists():
-            return False
-
-        # Buscar transcript (misma lógica que open_minutes_in_claude)
-        transcript_content = ''
-        sibling = md_path.with_name(md_path.stem + '_transcript.txt')
-        if sibling.exists():
-            try:
-                transcript_content = sibling.read_text(encoding='utf-8')
-            except Exception:
-                pass
-        if not transcript_content:
-            m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})', md_path.stem)
-            if m:
-                y, mo, d, hh, mm = m.groups()
-                stem = f"{y}-{mo}-{d}_{hh}-{mm}"
-                for folder in ['recordings/processed', 'recordings']:
-                    folder_path = PROJECT_DIR / folder
-                    if not folder_path.exists():
-                        continue
-                    candidates = list(folder_path.glob(f"{stem}*_transcript.txt"))
-                    if candidates:
-                        try:
-                            transcript_content = candidates[0].read_text(encoding='utf-8')
-                        except Exception:
-                            pass
-                        break
-        if not transcript_content:
-            return False
-
-        meta  = _parse_stem(md_path.stem)
-        title = meta['title']
-        date  = meta.get('date', '')
-
-        if lang == 'en':
-            prompt = (
-                f'I have the transcript of the meeting "{title}" from {date}. '
-                f'Use it as context to answer my questions:\n\n{transcript_content}'
-            )
-        else:
-            prompt = (
-                f'Tengo el transcript de la reunión "{title}" del {date}. '
-                f'Úsalo como contexto para responder mis preguntas:\n\n{transcript_content}'
-            )
-
-        try:
-            # Copiar al portapapeles via PowerShell (evita dependencias extra)
-            subprocess.run(
-                [_PWSH, '-NoProfile', '-Command',
-                 '$input | Set-Clipboard'],
-                input=prompt, text=True, encoding='utf-8',
-                capture_output=True,
+            subprocess.Popen(
+                [_PWSH, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File', str(ps1)],
+                creationflags=CREATE_NEW_CONSOLE,
             )
         except Exception as e:
-            log.warning(f"open_minutes_in_claude_app clipboard error: {e}")
-
-        try:
-            if os.name == 'nt':
-                os.startfile('claude:')
-            else:
-                webbrowser.open('https://claude.ai/new')
-        except Exception:
-            webbrowser.open('https://claude.ai/new')
+            log.error(f"open_minutes_in_claude: no se pudo abrir la terminal: {e}")
+            return False
         return True
 
     def open_html(self, path: str) -> bool:
@@ -1058,6 +1205,83 @@ class AppAPI:
             log.error(f"send_email: {e}")
             return False
 
+    def _meeting_recipients(self, md_path: Path) -> list:
+        """Destinatarios por defecto de una reunión: stakeholders de su proyecto."""
+        participants = []
+        try:
+            from actions_enricher import get_actions_path
+            ap = get_actions_path(md_path)
+            if ap.exists():
+                adata = json.loads(ap.read_text(encoding='utf-8'))
+                project_id = adata.get('project_id', '')
+                if project_id and project_id != 'none':
+                    projects_file = PROJECT_DIR / 'projects.json'
+                    if projects_file.exists():
+                        pdata = json.loads(projects_file.read_text(encoding='utf-8'))
+                        proj = next((p for p in pdata.get('projects', []) if p['id'] == project_id), None)
+                        if proj:
+                            stakeholders = proj.get('stakeholders', [])
+                            participants = [{'email': e, 'name': e} for e in stakeholders if e.strip()]
+        except Exception:
+            pass
+        return participants
+
+    def send_actions_email(self, path: str) -> bool:
+        """Abre un borrador de Outlook con las acciones de la reunión en una tabla."""
+        from outlook_sender import send_actions_email as _send_actions
+        from actions_enricher import load_enriched
+        md_path = Path(path)
+        actions = load_enriched(md_path) or []
+        if not actions:
+            return False
+        meta = _parse_stem(md_path.stem)
+        lang = _detect_notes_language(md_path)
+        try:
+            return _send_actions(
+                title=meta['title'],
+                date_str=meta.get('date', ''),
+                actions=actions,
+                participants=self._meeting_recipients(md_path),
+                language=lang,
+            )
+        except Exception as e:
+            log.error(f"send_actions_email: {e}")
+            return False
+
+    def send_transcript_email(self, path: str) -> bool:
+        """Abre un borrador de Outlook con la transcripción como fichero adjunto."""
+        from outlook_sender import send_transcript_email as _send_transcript
+        md_path = Path(path)
+        tpath = self._find_transcript_file(md_path)
+        if not tpath or not tpath.exists():
+            return False
+        meta = _parse_stem(md_path.stem)
+        lang = _detect_notes_language(md_path)
+        try:
+            return _send_transcript(
+                title=meta['title'],
+                date_str=meta.get('date', ''),
+                transcript_path=tpath,
+                participants=self._meeting_recipients(md_path),
+                language=lang,
+            )
+        except Exception as e:
+            log.error(f"send_transcript_email: {e}")
+            return False
+
+    def save_transcript(self, path: str, text: str) -> bool:
+        """Guarda las correcciones de la transcripción en su fichero .txt."""
+        try:
+            tpath = self._find_transcript_file(Path(path))
+            if not tpath:
+                return False
+            tpath.write_text(text, encoding='utf-8')
+            log.info(f"Transcripción actualizada: {tpath.name}")
+            return True
+        except Exception as e:
+            log.error(f"save_transcript: {e}")
+            return False
+
     def regenerate_minutes(self, path: str, extra_context: str, lang: str = '') -> bool:
         """Regenera las minutas de una reunión usando el transcript original y contexto adicional."""
         md_path = Path(path)
@@ -1104,6 +1328,26 @@ class AppAPI:
         # Synthetic path that carries the YYYY-MM-DD_HH-MM stem for date extraction
         synthetic_wav = RECORDINGS_DIR / f"{stem}_reunion.wav"
 
+        # Memoria de proyecto: el proyecto ya está asignado → sincroniza sus documentos
+        # y da a Claude acceso agéntico para regenerar con el contexto (nuevo) del proyecto.
+        _ctx_dir = None
+        try:
+            import project_context as _pc
+            _pid = ''
+            _ap = md_path.with_name(md_path.stem + '_actions.json')
+            if _ap.exists():
+                _pid = json.loads(_ap.read_text(encoding='utf-8')).get('project_id', '')
+            _proj = next((p for p in _pc.load_projects() if p.get('id') == _pid), None)
+            if not _proj:
+                _proj = _pc.detect_project(transcript_content, md_path.stem)
+            if _proj:
+                _pc.sync_project_docs(_proj)
+                _ctx_dir = _pc.get_context_dir(_proj)
+                if _ctx_dir:
+                    log.info(f"Regenerando con memoria de proyecto: {_proj.get('name')}")
+        except Exception as e:
+            log.warning(f"regenerate_minutes context: {e}")
+
         _prune_runs(_regen_runs)
         _regen_runs[path] = {'pct': 5, 'stage': 'transcript_ok', 'done': False, 'error': ''}
 
@@ -1129,7 +1373,7 @@ class AppAPI:
                 state['stage'] = 'generating'
                 raw = generate_minutes(transcript_content, synthetic_wav,
                                        extra_context=extra_context.strip() or None,
-                                       language=lang)
+                                       language=lang, context_dir=_ctx_dir)
                 ticker_active[0] = False
 
                 if not raw:
@@ -1442,9 +1686,15 @@ class AppAPI:
         for md in sorted(MINUTES_DIR.glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
             try:
                 content = md.read_text(encoding='utf-8').lower()
-                if q in content or q in md.stem.lower():
+                actions_path = md.parent / f"{md.stem}_actions.json"
+                actions_text = ''
+                if actions_path.exists():
+                    try:
+                        actions_text = actions_path.read_text(encoding='utf-8').lower()
+                    except Exception:
+                        pass
+                if q in content or q in md.stem.lower() or q in actions_text:
                     meta = _parse_stem(md.stem)
-                    actions_path = md.parent / f"{md.stem}_actions.json"
                     pending = 0
                     has_actions = False
                     project_id = ''
@@ -1515,6 +1765,13 @@ def _detect_notes_language(md_path: Path) -> str:
     except Exception:
         pass
     return 'es'
+
+
+def _pin_key(stem: str) -> str:
+    """Clave estable de una reunión para fijados: la marca de tiempo
+    YYYYMMDD_HHMM, que no cambia aunque se renombre el título."""
+    m = re.match(r'(\d{8}_\d{4})', stem)
+    return m.group(1) if m else stem
 
 
 def _parse_stem(stem: str) -> dict:

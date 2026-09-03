@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from pathlib import Path
 
@@ -24,8 +25,17 @@ def _get_model():
     with _model_lock:
         if _model is None:
             from faster_whisper import WhisperModel
-            log.info(f"Cargando modelo Whisper '{WHISPER_MODEL}'...")
-            _model = WhisperModel(WHISPER_MODEL, device='auto', compute_type='int8')
+            # Usar todos los núcleos físicos (CTranslate2 por defecto solo usa 4).
+            # En CPU-only esto acelera notablemente la transcripción.
+            try:
+                import psutil
+                threads = psutil.cpu_count(logical=False) or os.cpu_count() or 4
+            except Exception:
+                threads = os.cpu_count() or 4
+            log.info(f"Cargando modelo Whisper '{WHISPER_MODEL}' (cpu_threads={threads})...")
+            _model = WhisperModel(
+                WHISPER_MODEL, device='auto', compute_type='int8', cpu_threads=threads,
+            )
             log.info("Modelo Whisper cargado")
         return _model
 
