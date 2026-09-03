@@ -1003,7 +1003,7 @@ async function openMeeting(path) {
       _copyRich('', transcriptText || '');
     } else {
       const d = document.querySelector('.minutes-content');
-      _copyRich(d ? d.innerHTML : '', d ? d.innerText : '');
+      _copyRich(d ? _inlineStyles(d.innerHTML) : '', d ? d.innerText : '');
     }
   });
 
@@ -3914,11 +3914,42 @@ async function _copyActionsTable(path) {
     a.date || '—',
     a.deadline || '—',
   ]);
-  const th  = heads.map(h => `<th style="text-align:left;padding:6px 12px;border:1px solid #ccc;background:#f0f0f0;font-family:Calibri,Arial,sans-serif;font-size:13px">${escHtml(h)}</th>`).join('');
-  const trs = rows.map(r => `<tr>${r.map(c => `<td style="padding:6px 12px;border:1px solid #ddd;font-family:Calibri,Arial,sans-serif;font-size:13px">${escHtml(c)}</td>`).join('')}</tr>`).join('');
-  const rich = `<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:13px"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  const TH = 'text-align:left;padding:9px 14px;border:1px solid #c4b5fd;background:#7c3aed;color:#fff;font-family:Calibri,Arial,sans-serif;font-size:13px;font-weight:600;letter-spacing:0.3px';
+  const TD = (even) => `padding:8px 14px;border:1px solid #e5e7eb;font-family:Calibri,Arial,sans-serif;font-size:13px;color:#1a1a2e;background:${even ? '#faf5ff' : '#fff'}`;
+  const th  = heads.map(h => `<th style="${TH}">${escHtml(h)}</th>`).join('');
+  const trs = rows.map((r, i) => `<tr>${r.map(c => `<td style="${TD(i % 2 === 1)}">${escHtml(c)}</td>`).join('')}</tr>`).join('');
+  const rich = `<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:13px;width:100%"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
   const text = [heads.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
   _copyRich(rich, text);
+}
+
+// ── Inline styles for clipboard (makes Word/Outlook paste look good) ──────────
+
+function _inlineStyles(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+
+  const S  = 'font-family:Calibri,Arial,sans-serif;font-size:13px;color:#1a1a2e;line-height:1.65';
+  const BD = 'border-bottom:1.5px solid #e5e7eb;padding-bottom:5px;margin:18px 0 8px';
+
+  div.querySelectorAll('h1').forEach(el => el.setAttribute('style', `font-size:20px;font-weight:700;color:#1a1a2e;${BD};font-family:Calibri,Arial,sans-serif`));
+  div.querySelectorAll('h2').forEach(el => el.setAttribute('style', `font-size:16px;font-weight:700;color:#1a1a2e;${BD};font-family:Calibri,Arial,sans-serif`));
+  div.querySelectorAll('h3').forEach(el => el.setAttribute('style', `font-size:14px;font-weight:600;color:#374151;margin:12px 0 5px;font-family:Calibri,Arial,sans-serif`));
+  div.querySelectorAll('p').forEach(el  => el.setAttribute('style', `margin:0 0 9px;color:#374151;font-family:Calibri,Arial,sans-serif;font-size:13px;line-height:1.65`));
+  div.querySelectorAll('ul,ol').forEach(el => el.setAttribute('style', `margin:0 0 10px;padding-left:22px;color:#374151;font-family:Calibri,Arial,sans-serif;font-size:13px`));
+  div.querySelectorAll('li').forEach(el  => el.setAttribute('style', `margin-bottom:5px;color:#374151`));
+  div.querySelectorAll('strong,b').forEach(el => el.setAttribute('style', `font-weight:700;color:#1a1a2e`));
+  div.querySelectorAll('em,i').forEach(el => el.setAttribute('style', `font-style:italic;color:#374151`));
+  div.querySelectorAll('code').forEach(el => el.setAttribute('style', `font-family:Consolas,Courier New,monospace;font-size:12px;background:#f3f0f9;padding:1px 5px;border-radius:3px;color:#7c3aed`));
+  div.querySelectorAll('blockquote').forEach(el => el.setAttribute('style', `border-left:3px solid #A100FF;margin:10px 0;padding:6px 12px;color:#5c5470;font-style:italic;background:#faf5ff`));
+  div.querySelectorAll('table').forEach(el => el.setAttribute('style', `border-collapse:collapse;width:100%;margin:12px 0;font-family:Calibri,Arial,sans-serif;font-size:13px`));
+  div.querySelectorAll('th').forEach(el  => el.setAttribute('style', `text-align:left;padding:8px 13px;border:1px solid #c4b5fd;background:#7c3aed;color:#fff;font-weight:600`));
+  div.querySelectorAll('td').forEach(el  => el.setAttribute('style', `padding:7px 13px;border:1px solid #e5e7eb;color:#1a1a2e;background:#fff`));
+  // Alternate row tint
+  div.querySelectorAll('tbody tr:nth-child(even) td').forEach(el => el.setAttribute('style', `padding:7px 13px;border:1px solid #e5e7eb;color:#1a1a2e;background:#faf5ff`));
+  div.querySelectorAll('hr').forEach(el  => el.setAttribute('style', `border:none;border-top:1.5px solid #e5e7eb;margin:14px 0`));
+
+  return `<div style="${S}">${div.innerHTML}</div>`;
 }
 
 // ── Sticky notes ──────────────────────────────────────────────────────────────
