@@ -995,11 +995,10 @@ async function openMeeting(path) {
   document.addEventListener('click', () => document.getElementById('action-menu')?.classList.add('hidden'));
 
   // Context-aware copy
-  document.getElementById('btn-copy').addEventListener('click', () => {
+  document.getElementById('btn-copy').addEventListener('click', async () => {
     const activeTab = document.querySelector('.detail-tab.active')?.dataset.tab || 'notes';
     if (activeTab === 'actions') {
-      const d = document.getElementById('meeting-actions');
-      _copyRich(d ? d.innerHTML : '', d ? d.innerText : '');
+      await _copyActionsTable(path);
     } else if (activeTab === 'transcript') {
       _copyRich('', transcriptText || '');
     } else {
@@ -3624,18 +3623,22 @@ async function updatePipelineFooter() {
   dot.className = 'pipeline-tab-dot ' + (anyRecording ? 'recording' : 'processing');
 
   body.innerHTML = jobs.map(j => {
-    const dotClass = j.stage === 'recording' ? 'recording' : 'processing';
-    const pctHtml  = j.pct != null ? `<span class="pipeline-job-pct">${j.pct}%</span>` : '';
-    const progHtml = j.pct != null
-      ? `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:${j.pct}%"></div></div>`
-      : '';
+    const dotClass  = j.stage === 'recording' ? 'recording' : 'processing';
+    const pct       = j.pct ?? null;
+    const spineH    = pct != null ? `${pct}%` : (j.stage === 'recording' ? '30%' : '60%');
+    const stageLabel = j.stage_label || j.stage || '';
+    const progHtml  = pct != null
+      ? `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:${pct}%"></div></div>`
+      : `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill shimmer"></div></div>`;
     return `
       <div class="pipeline-job-card">
+        <div class="pipeline-job-spine"><div class="pipeline-job-spine-fill" style="height:${spineH}"></div></div>
         <div class="pipeline-job-header">
           <span class="pipeline-job-dot ${dotClass}"></span>
           <span class="pipeline-job-label">${escHtml(j.label)}</span>
-          ${pctHtml}
+          ${pct != null ? `<span class="pipeline-job-pct">${pct}%</span>` : ''}
         </div>
+        ${stageLabel ? `<div class="pipeline-job-stage">${escHtml(stageLabel)}</div>` : ''}
         ${progHtml}
       </div>`;
   }).join('');
@@ -3899,6 +3902,23 @@ function _copyExec(text, done, fail) {
   try { ok = document.execCommand('copy'); } catch (_) {}
   ta.remove();
   ok ? done() : fail();
+}
+
+async function _copyActionsTable(path) {
+  let actions = [];
+  try { actions = (await pywebview.api.get_actions(path)) || []; } catch (_) {}
+  const heads = ['Acción', 'Responsable', 'Fecha', 'Plazo'];
+  const rows  = actions.map(a => [
+    a.title || '',
+    a.assignee || '—',
+    a.date || '—',
+    a.deadline || '—',
+  ]);
+  const th  = heads.map(h => `<th style="text-align:left;padding:6px 12px;border:1px solid #ccc;background:#f0f0f0;font-family:Calibri,Arial,sans-serif;font-size:13px">${escHtml(h)}</th>`).join('');
+  const trs = rows.map(r => `<tr>${r.map(c => `<td style="padding:6px 12px;border:1px solid #ddd;font-family:Calibri,Arial,sans-serif;font-size:13px">${escHtml(c)}</td>`).join('')}</tr>`).join('');
+  const rich = `<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:13px"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  const text = [heads.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
+  _copyRich(rich, text);
 }
 
 // ── Sticky notes ──────────────────────────────────────────────────────────────
