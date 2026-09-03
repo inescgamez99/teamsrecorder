@@ -813,20 +813,26 @@ function dayLabel(dateStr) {
 // ── Apertura de reunión ───────────────────────────────────────────────────────
 
 function _updateActionBar(tab) {
+  const show = (id, visible) => { const el = document.getElementById(id); if (el) el.style.display = visible ? '' : 'none'; };
+
+  // Edit: hidden on transcript (read-only)
   const editBtn = document.getElementById('btn-edit-notes');
+  if (editBtn) {
+    editBtn.style.display = tab === 'transcript' ? 'none' : '';
+    editBtn.title = tab === 'actions' ? t('btn_reenrich') : t('btn_edit');
+  }
+
+  // Copy + Email: always visible, titles change
   const copyBtn = document.getElementById('btn-copy');
   const mailBtn = document.getElementById('btn-email');
-  if (editBtn) {
-    editBtn.title = tab === 'transcript' ? t('export_transcript_btn')
-                  : tab === 'actions'    ? t('btn_reenrich')
-                  : t('btn_edit');
-  }
-  if (copyBtn) copyBtn.title = tab === 'actions'    ? t('copy_actions')
-                             : tab === 'transcript' ? t('copy_transcript')
-                             : t('copy_note');
-  if (mailBtn) mailBtn.title = tab === 'actions'    ? t('email_actions')
-                             : tab === 'transcript' ? t('email_transcript')
-                             : t('send_email');
+  if (copyBtn) copyBtn.title = tab === 'actions' ? t('copy_actions') : tab === 'transcript' ? t('copy_transcript') : t('copy_note');
+  if (mailBtn) mailBtn.title = tab === 'actions' ? t('email_actions') : tab === 'transcript' ? t('email_transcript') : t('send_email');
+
+  // More dropdown items
+  show('btn-regenerate',       tab === 'notes');
+  show('btn-html',             tab === 'notes');
+  show('btn-export-transcript', tab === 'transcript');
+  show('btn-claude',           tab !== 'transcript');
 }
 
 async function openMeeting(path) {
