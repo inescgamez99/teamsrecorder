@@ -4,32 +4,19 @@ $mainpy = Join-Path $dir "main.py"
 $lockf  = Join-Path $dir ".lock"
 $logf   = Join-Path $dir "teamsrecorder.log"
 
-# Buscar pythonw.exe / python.exe en PATH
-$found = Get-Command pythonw.exe -ErrorAction SilentlyContinue
-if ($found) { $python = $found.Source }
-else {
-    $found2 = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($found2) { $python = $found2.Source } else { $python = $null }
-}
-
-# Fallback: instalaciones típicas de Python por usuario (si no está en PATH)
-if (-not $python -or $python -like "*WindowsApps*") {
-    foreach ($cand in @(
-        "$env:LOCALAPPDATA\Programs\Python\Python313\pythonw.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python312\pythonw.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe"
-    )) {
-        if (Test-Path $cand) { $python = $cand; break }
-    }
-}
+# Resolver el interprete: .venv del repo primero, luego PATH, luego
+# instalaciones por usuario. Ver Get-TRPython en tr_env.ps1.
+. (Join-Path $dir "tr_env.ps1")
+$pyEnv = Get-TRPython -Root $dir
 
 function Log($msg) {
     $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     Add-Content -Path $logf -Value "$ts WATCHDOG: $msg" -Encoding UTF8
 }
 
-if (-not $python) { Log "ERROR: no se encontro python"; exit 1 }
-Log "Watchdog iniciado (python: $python)"
+if (-not $pyEnv) { Log "ERROR: no se encontro python"; exit 1 }
+$python = $pyEnv.Pythonw
+Log "Watchdog iniciado (python: $python, origen: $($pyEnv.Source))"
 
 while ($true) {
     # Limpiar lock huerfano

@@ -1,0 +1,8 @@
+# Los hooks son scripts sh y deben conservar finales de linea LF.
+# Con CRLF, sh falla al arrancar con "bad interpreter: /bin/sh^M".
+hooks/*     text eol=lf
+*.sh        text eol=lf
+
+# PowerShell y batch son nativos de Windows: CRLF.
+*.ps1       text eol=crlf
+*.bat       text eol=crlf
