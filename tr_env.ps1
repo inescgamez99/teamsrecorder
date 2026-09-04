@@ -105,11 +105,18 @@ function Get-TRPython {
     }
 
     if (-not $exe) {
-        foreach ($cand in @(
+        # Buscar en rutas conocidas (instalación clásica y pythoncore/Store)
+        $candidates = @(
             "$env:LOCALAPPDATA\Programs\Python\Python313\pythonw.exe",
             "$env:LOCALAPPDATA\Programs\Python\Python312\pythonw.exe",
             "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe"
-        )) {
+        )
+        # pythoncore-* (Python Manager / Microsoft Store)
+        if (Test-Path "$env:LOCALAPPDATA\Python") {
+            $candidates += Get-ChildItem "$env:LOCALAPPDATA\Python" -Filter 'pythonw.exe' -Recurse -ErrorAction SilentlyContinue |
+                           Select-Object -ExpandProperty FullName
+        }
+        foreach ($cand in $candidates) {
             if (Test-Path $cand) { $exe = $cand; break }
         }
     }
