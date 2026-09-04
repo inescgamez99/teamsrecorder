@@ -106,7 +106,11 @@ class TrayApp:
         if self._recording_start:
             elapsed = int(time.time() - self._recording_start)
             m, s = divmod(elapsed, 60)
-            jobs.append({'stage': 'recording', 'label': f'Recording {m:02d}:{s:02d}', 'elapsed': elapsed, 'pct': None})
+            _rm = _re.match(r'\d{4}-\d{2}-\d{2}_(\d{2})-(\d{2})(?:_(.+))?', self._recording_path.stem) if self._recording_path else None
+            _rtitle = _rm.group(3).replace('_', ' ').title() if (_rm and _rm.group(3)) else None
+            _rtime  = f"{_rm.group(1)}:{_rm.group(2)}" if _rm else None
+            jobs.append({'stage': 'recording', 'label': f'Recording {m:02d}:{s:02d}', 'elapsed': elapsed, 'pct': None,
+                         'title': _rtitle, 'time': _rtime, 'step': 0, 'total_steps': 3, 'step_label': 'Grabando'})
         if self._processing_msg:
             pct_m = _re.search(r'(\d+)%', self._processing_msg)
             job = {'stage': 'processing', 'label': self._processing_msg, 'pct': int(pct_m.group(1)) if pct_m else None}

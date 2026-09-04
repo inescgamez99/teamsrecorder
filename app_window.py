@@ -190,6 +190,23 @@ class AppAPI:
         acts = load_enriched(Path(path))
         return acts or []
 
+    def rename_meeting(self, path: str, new_title: str) -> bool:
+        """Actualiza el título de una reunión en su archivo .md."""
+        md_path = Path(path)
+        if not md_path.exists():
+            return False
+        try:
+            text = md_path.read_text(encoding='utf-8')
+            import re as _re
+            if _re.match(r'TITULO:', text):
+                text = _re.sub(r'^TITULO:.*', f'TITULO: {new_title.strip()}', text, count=1)
+            else:
+                text = f'TITULO: {new_title.strip()}\n\n' + text
+            md_path.write_text(text, encoding='utf-8')
+            return True
+        except Exception:
+            return False
+
     def pick_folder(self) -> str:
         """Abre el explorador de carpetas nativo de Windows. Devuelve la ruta o ''."""
         try:
@@ -365,6 +382,27 @@ class AppAPI:
             log.error(f"create_action: {e}")
             return {}
 
+    def update_action(self, path: str, index: int, title: str,
+                      assignee: str = '', deadline: str = '') -> bool:
+        """Actualiza título, responsable y deadline de una acción existente."""
+        from actions_enricher import get_actions_path
+        ap = get_actions_path(Path(path))
+        if not ap.exists():
+            return False
+        try:
+            data = json.loads(ap.read_text(encoding='utf-8'))
+            for a in data.get('actions', []):
+                if a['index'] == index:
+                    a['title']    = title.strip()
+                    a['assignee'] = assignee.strip()
+                    a['deadline'] = deadline.strip()
+                    break
+            ap.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            return True
+        except Exception as e:
+            log.error(f"update_action: {e}")
+            return False
+
     def delete_action(self, path: str, index: int) -> bool:
         """Elimina una acción del JSON de la reunión."""
         from actions_enricher import get_actions_path
@@ -403,8 +441,8 @@ class AppAPI:
     # ── Task board ────────────────────────────────────────────────────────────
 
     def get_tasks(self) -> dict:
-        """Returns all tasks + projects + buckets for the task board. Runs migration on first call."""
-        from tasks_store import get_tasks as _get, migrate_panel_actions
+        """Returns all tasks + projects + buckets + custom field values for the task board."""
+        from tasks_store import get_tasks as _get, migrate_panel_actions, get_custom_values
         from buckets_store import get_buckets as _get_buckets
         migrate_panel_actions()
         tasks = _get()
@@ -416,7 +454,14 @@ class AppAPI:
                 projects = pdata.get('projects', [])
         except Exception:
             pass
-        return {'projects': projects, 'tasks': tasks, 'buckets': _get_buckets()}
+        return {
+            'projects': projects,
+            'tasks': tasks,
+            'buckets': _get_buckets(),
+            'custom_statuses': get_custom_values('custom_statuses'),
+            'custom_priorities': get_custom_values('custom_priorities'),
+            'status_column_order': get_custom_values('status_column_order'),
+        }
 
     def get_buckets(self) -> list:
         from buckets_store import get_buckets as _get
@@ -429,7 +474,7 @@ class AppAPI:
     def create_task(self, project_id: str, title: str, parent_id: str = '',
                     assignee: str = '', deadline: str = '', priority: str = '',
                     bucket_id: str = '', start_date: str = '', end_date: str = '',
-                    tags: list = None, view: str = '') -> dict:
+                    tags: list = None, view: str = '', status: str = '') -> dict:
         from tasks_store import create_task as _create
         from buckets_store import get_first_bucket_id
         return _create(
@@ -444,7 +489,20 @@ class AppAPI:
             bucket_id=bucket_id or get_first_bucket_id(),
             source='manual',
             view=view or None,
+            status=status or 'not_started',
         )
+
+    def save_custom_statuses(self, statuses: list) -> bool:
+        from tasks_store import save_custom_values
+        return save_custom_values('custom_statuses', statuses)
+
+    def save_custom_priorities(self, priorities: list) -> bool:
+        from tasks_store import save_custom_values
+        return save_custom_values('custom_priorities', priorities)
+
+    def save_status_column_order(self, order: list) -> bool:
+        from tasks_store import save_custom_values
+        return save_custom_values('status_column_order', order)
 
     def update_task(self, task_id: str, fields: dict) -> bool:
         from tasks_store import update_task as _update
@@ -1923,7 +1981,7 @@ def _run_window(initial_path: str = None):
                 import ctypes
                 hwnd = ctypes.windll.user32.FindWindowW(None, 'TeamsRecorder')
                 if hwnd:
-                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    ctypes.windll.user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
                     ctypes.windll.user32.SetForegroundWindow(hwnd)
             except Exception:
                 pass

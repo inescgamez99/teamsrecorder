@@ -7,6 +7,9 @@ trash/
 settings.json
 projects.json
 tasks.json
+buckets.json
+pins.json
+project_docs/
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 .lock

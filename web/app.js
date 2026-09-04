@@ -28,7 +28,10 @@ let _dragTaskId = null;
 let _dragBucketId = null;
 let _filterProjectId = null;  // null = todos
 let _sortBy = null;           // null | 'end_date' | 'priority' | 'title' | 'tag'
-let _groupBy = 'bucket';     // 'bucket' | 'priority' | 'assignee' | 'due_date'
+let _groupBy = 'status';     // 'status' | 'priority' | 'assignee' | 'due_date'
+let _customStatuses     = [];
+let _customPriorities   = [];
+let _statusColumnOrder  = [];
 let currentSidebarMode   = 'days';
 let searchTimeout        = null;
 
@@ -152,6 +155,10 @@ const T = {
     proj_folder_default: 'Carpeta de TeamsRecorder (por defecto)',
     proj_folder_browse: 'Seleccionar carpeta',
     proj_folder_clear: 'Restablecer',
+    proj_context_label: 'Memoria del proyecto',
+    proj_context_desc: 'Carpetas de documentos que Claude usará como contexto al generar minutas (READMEs, PRDs, specs técnicas…). Se sincronizan automáticamente.',
+    proj_context_add: '+ Añadir carpeta',
+    proj_context_empty: 'Sin carpetas de memoria',
     account_settings_title: 'Cuenta',
     project_settings_title: 'Configuración de proyectos',
     no_projects: 'Sin proyectos',
@@ -181,7 +188,7 @@ const T = {
     task_col_name: 'Nombre de tarea', task_col_status: 'Estado',
     task_col_assignee: 'Responsable', task_col_deadline: 'Fecha límite',
     task_col_start_date: 'Fecha inicio', task_col_end_date: 'Fecha fin',
-    task_col_tags: 'Etiquetas', task_col_priority: 'Prioridad',
+    task_col_tags: 'Etiquetas', task_col_priority: 'Prioridad', task_col_bucket: 'Columna',
     task_col_dates: 'Fechas', tags_placeholder: 'Añadir etiqueta…',
     task_filter_all: 'Todos',
     view_list: 'Vista lista', view_board: 'Vista tablero', refresh: 'Actualizar',
@@ -338,6 +345,10 @@ const T = {
     proj_folder_default: 'TeamsRecorder folder (default)',
     proj_folder_browse: 'Browse folder',
     proj_folder_clear: 'Reset',
+    proj_context_label: 'Project memory',
+    proj_context_desc: 'Document folders Claude will use as context when generating minutes (READMEs, PRDs, technical specs…). Synced automatically.',
+    proj_context_add: '+ Add folder',
+    proj_context_empty: 'No memory folders',
     account_settings_title: 'Account',
     project_settings_title: 'Project settings',
     no_projects: 'No projects yet',
@@ -367,7 +378,7 @@ const T = {
     task_col_name: 'Task name', task_col_status: 'Status',
     task_col_assignee: 'Assignee', task_col_deadline: 'Deadline',
     task_col_start_date: 'Start date', task_col_end_date: 'End date',
-    task_col_tags: 'Tags', task_col_priority: 'Priority',
+    task_col_tags: 'Tags', task_col_priority: 'Priority', task_col_bucket: 'Column',
     task_col_dates: 'Dates', tags_placeholder: 'Add tag…',
     task_filter_all: 'All',
     view_list: 'List view', view_board: 'Board view', refresh: 'Refresh',
@@ -869,11 +880,11 @@ function dayLabel(dateStr) {
 function _updateActionBar(tab) {
   const show = (id, visible) => { const el = document.getElementById(id); if (el) el.style.display = visible ? '' : 'none'; };
 
-  // Edit: hidden on transcript (read-only)
+  // Edit: only on notes tab (transcript = read-only, actions = per-card edit)
   const editBtn = document.getElementById('btn-edit-notes');
   if (editBtn) {
-    editBtn.style.display = tab === 'transcript' ? 'none' : '';
-    editBtn.title = tab === 'actions' ? t('btn_reenrich') : t('btn_edit');
+    editBtn.style.display = tab === 'notes' ? '' : 'none';
+    editBtn.title = t('btn_edit');
   }
 
   // Copy + Email: always visible, titles change
@@ -882,11 +893,21 @@ function _updateActionBar(tab) {
   if (copyBtn) copyBtn.title = tab === 'actions' ? t('copy_actions') : tab === 'transcript' ? t('copy_transcript') : t('copy_note');
   if (mailBtn) mailBtn.title = tab === 'actions' ? t('email_actions') : tab === 'transcript' ? t('email_transcript') : t('send_email');
 
-  // More dropdown items
-  show('btn-regenerate',       tab === 'notes');
-  show('btn-html',             tab === 'notes');
+  // Export transcript: visible in main bar only on transcript tab
   show('btn-export-transcript', tab === 'transcript');
-  show('btn-claude',           tab !== 'transcript');
+
+  // Sticky: in dropdown (notes), in main bar (actions), hidden (transcript)
+  show('btn-sticky',     tab === 'notes');      // dropdown item
+  show('btn-sticky-bar', tab === 'actions');    // direct bar button
+
+  // Dropdown items (notes only)
+  show('btn-regenerate', tab === 'notes');
+  show('btn-html',       tab === 'notes');
+
+  // ··· only on notes (has sticky + regenerate + html); actions and transcript have nothing there
+  show('btn-more', tab === 'notes');
+
+  show('btn-claude', tab !== 'transcript');
 }
 
 async function openMeeting(path) {
@@ -922,7 +943,10 @@ async function openMeeting(path) {
     <div class="meeting-detail">
       <div class="detail-header">
         <div>
-          <div class="detail-title">${escHtml(meeting.title || t('empty_title'))}</div>
+          <div class="detail-title-row">
+            <span class="detail-title" id="detail-title-text">${escHtml(meeting.title || t('empty_title'))}</span>
+            <button class="btn-rename-meeting" id="btn-rename-meeting" title="${t('btn_edit')}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          </div>
           <div class="detail-meta">
             <span>${meeting.date || ''} ${meeting.time || ''}</span>
             <span class="detail-project-wrap">
@@ -936,13 +960,14 @@ async function openMeeting(path) {
           <button class="action-icon-btn" id="btn-edit-notes" title="${t('btn_edit')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           <button class="action-icon-btn" id="btn-copy" title="${t('copy_note')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
           <button class="action-icon-btn" id="btn-email" title="${t('send_email')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></button>
+          <button class="action-icon-btn" id="btn-export-transcript" title="${t('export_transcript_btn')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          <button class="action-icon-btn" id="btn-sticky-bar" title="${t('sticky_add')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-6a1 1 0 0 1 1-1h6"/></svg></button>
           <div class="action-more-wrap">
             <button class="action-icon-btn" id="btn-more" title="${t('more_actions')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
             <div class="action-menu hidden" id="action-menu">
               <button class="action-menu-item" id="btn-sticky"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-6a1 1 0 0 1 1-1h6"/></svg><span>${t('sticky_add')}</span></button>
               <button class="action-menu-item" id="btn-regenerate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg><span>${t('btn_regenerate')}</span></button>
               <button class="action-menu-item" id="btn-html"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>HTML</span></button>
-              <button class="action-menu-item" id="btn-export-transcript"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>${t('export_transcript_btn')}</span></button>
             </div>
           </div>
         </div>
@@ -985,7 +1010,11 @@ async function openMeeting(path) {
   document.getElementById('btn-regenerate').addEventListener('click', () => { document.getElementById('action-menu').classList.add('hidden'); toggleRegenBar(); });
   document.getElementById('btn-regen-cancel').addEventListener('click', () => toggleRegenBar(false));
   document.getElementById('btn-regen-confirm').addEventListener('click', () => confirmRegen(path));
-  document.getElementById('btn-edit-notes').addEventListener('click', () => toggleEditNotes(path));
+  document.getElementById('btn-edit-notes').addEventListener('click', () => {
+    const activeTab = document.querySelector('.detail-tab.active')?.dataset.tab || 'notes';
+    if (activeTab === 'actions') reenrichMeeting(path);
+    else toggleEditNotes(path);
+  });
 
   // More dropdown toggle
   document.getElementById('btn-more').addEventListener('click', (e) => {
@@ -1015,11 +1044,8 @@ async function openMeeting(path) {
     else sendEmail(path);
   });
 
-  // Sticky note button
-  document.getElementById('btn-sticky').addEventListener('click', () => {
-    document.getElementById('action-menu').classList.add('hidden');
-    addSticky();
-  });
+  document.getElementById('btn-sticky').addEventListener('click', () => { document.getElementById('action-menu').classList.add('hidden'); addSticky(); });
+  document.getElementById('btn-sticky-bar').addEventListener('click', () => addSticky());
 
   // Load stickies for this meeting
   _loadStickies(path);
@@ -1047,6 +1073,22 @@ async function openMeeting(path) {
   });
 
   document.getElementById('btn-add-action')?.addEventListener('click', () => toggleAddActionForm(path));
+
+  document.getElementById('btn-rename-meeting')?.addEventListener('click', () => {
+    const titleEl = document.getElementById('detail-title-text');
+    const current = titleEl?.textContent || '';
+    const next = prompt(t('btn_edit') + ':', current);
+    if (!next || next.trim() === current.trim()) return;
+    pywebview.api.rename_meeting(path, next.trim()).then(ok => {
+      if (!ok) return;
+      if (titleEl) titleEl.textContent = next.trim();
+      const m = allMeetings.find(x => x.path === path);
+      if (m) {
+        m.title = next.trim();
+        renderSidebar();
+      }
+    });
+  });
 
   const actionsDiv = document.getElementById('meeting-actions');
   if (actions && actions.length) {
@@ -1152,7 +1194,19 @@ function renderActionCards(actions, path, container, meetingDate) {
           ${claudeExec
             ? `<button class="btn btn-ghost btn-sm" data-toggle="${a.index}">${autoOpen ? t('btn_prompt_hide') : t('btn_prompt_show')}</button>`
             : ''}
+          <button class="btn btn-ghost btn-sm" data-edit="${a.index}" title="${t('btn_edit')}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           <button class="btn btn-delete btn-sm" data-del="${a.index}" title="${t('btn_delete')}">×</button>
+        </div>
+      </div>
+      <div class="action-edit-form hidden" id="edit-form-${a.index}">
+        <input class="action-edit-input" id="edit-title-${a.index}" value="${escHtml(a.title)}" placeholder="${t('action_title_ph')}">
+        <div class="action-edit-row">
+          <input class="action-edit-input" id="edit-assignee-${a.index}" value="${escHtml(a.assignee||'')}" placeholder="${t('add_action_assignee_ph')}">
+          <input class="action-edit-input" id="edit-deadline-${a.index}" value="${escHtml(a.deadline||'')}" placeholder="${t('action_deadline_ph')}" style="max-width:130px">
+        </div>
+        <div class="action-edit-btns">
+          <button class="btn btn-primary btn-sm" data-save-edit="${a.index}">${t('save_btn')}</button>
+          <button class="btn btn-ghost btn-sm" data-cancel-edit="${a.index}">${t('cancel_btn')}</button>
         </div>
       </div>
       ${claudeExec ? `
@@ -1181,6 +1235,35 @@ function renderActionCards(actions, path, container, meetingDate) {
 
   container.querySelectorAll('[data-del]').forEach(el => {
     el.addEventListener('click', () => deleteAction(path, parseInt(el.dataset.del), el));
+  });
+
+  container.querySelectorAll('[data-edit]').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = el.dataset.edit;
+      document.getElementById(`edit-form-${idx}`)?.classList.toggle('hidden');
+    });
+  });
+
+  container.querySelectorAll('[data-save-edit]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const idx = parseInt(el.dataset.saveEdit);
+      const title    = document.getElementById(`edit-title-${idx}`)?.value || '';
+      const assignee = document.getElementById(`edit-assignee-${idx}`)?.value || '';
+      const deadline = document.getElementById(`edit-deadline-${idx}`)?.value || '';
+      const ok = await pywebview.api.update_action(path, idx, title, assignee, deadline);
+      if (ok) {
+        document.getElementById(`edit-form-${idx}`)?.classList.add('hidden');
+        // Reload the actions list to reflect changes
+        const actions = await pywebview.api.get_actions(path);
+        renderActionCards(actions, path, container, '');
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-cancel-edit]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.getElementById(`edit-form-${el.dataset.cancelEdit}`)?.classList.add('hidden');
+    });
   });
   container.querySelectorAll('[data-panel]').forEach(el => {
     el.addEventListener('click', () => moveToPanel(path, parseInt(el.dataset.panel), el));
@@ -1358,10 +1441,24 @@ function _syncStatusFromBucket(task, newBucketId) {
   pywebview.api.update_task(task.id, { status: targetStatus });
 }
 
-function _statusLabel(s)   { return t('status_' + (s || 'not_started')); }
-function _priorityLabel(p) { return p ? t('priority_' + p) : t('priority_none'); }
-function _statusCls(s)     { return s || 'not_started'; }
-function _priorityCls(p)   { return p || 'none_p'; }
+function _statusLabel(s) {
+  if (!s) return t('status_not_started');
+  const key = 'status_' + s;
+  const label = t(key);
+  if (label !== key) return label;
+  const custom = _customStatuses.find(c => c.id === s);
+  return custom ? custom.name : s;
+}
+function _priorityLabel(p) {
+  if (!p) return t('priority_none');
+  const key = 'priority_' + p;
+  const label = t(key);
+  if (label !== key) return label;
+  const custom = _customPriorities.find(c => c.id === p);
+  return custom ? custom.name : p;
+}
+function _statusCls(s)   { return STATUS_CYCLE.includes(s || 'not_started') ? (s || 'not_started') : 'custom_status'; }
+function _priorityCls(p) { return p || 'none_p'; }
 
 async function loadTaskBoard() {
   const body = document.getElementById('task-board-body');
@@ -1369,6 +1466,9 @@ async function loadTaskBoard() {
   body.innerHTML = `<div class="loading">${t('loading_actions')}</div>`;
   _taskData = await pywebview.api.get_tasks();
   _buckets = _taskData.buckets || [];
+  _customStatuses    = _taskData.custom_statuses    || [];
+  _customPriorities  = _taskData.custom_priorities  || [];
+  _statusColumnOrder = _taskData.status_column_order || [];
   // Tooltips i18n
   document.getElementById('btn-view-list')?.setAttribute('title', t('view_list'));
   document.getElementById('btn-view-board')?.setAttribute('title', t('view_board'));
@@ -1391,13 +1491,26 @@ function _setSortBy(val) {
 }
 
 function _setGroupBy(val) {
-  _groupBy = val || 'bucket';
+  _groupBy = val || 'status';
   renderKanbanBoard();
 }
 
 function _getGroupByColumns(tasks) {
-  if (_groupBy === 'bucket') {
-    return _buckets.length ? _buckets : [{id:'pendiente', name:'Pendiente', color:'#6b7280', order:0}];
+  if (_groupBy === 'status') {
+    const defaults = [
+      {id: 'not_started',      name: t('status_not_started'),      color: '#6b7280'},
+      {id: 'in_progress',      name: t('status_in_progress'),      color: '#3b82f6'},
+      {id: 'blocked',          name: t('status_blocked'),          color: '#ef4444'},
+      {id: 'paused',           name: t('status_paused'),           color: '#f59e0b'},
+      {id: 'pending_feedback', name: t('status_pending_feedback'), color: '#8b5cf6'},
+      {id: 'done',             name: t('status_done'),             color: '#10b981'},
+    ];
+    const all = [...defaults, ..._customStatuses];
+    if (!_statusColumnOrder.length) return all;
+    const byId = Object.fromEntries(all.map(c => [c.id, c]));
+    const ordered = _statusColumnOrder.map(id => byId[id]).filter(Boolean);
+    const inOrder = new Set(_statusColumnOrder);
+    return [...ordered, ...all.filter(c => !inOrder.has(c.id))];
   }
   if (_groupBy === 'priority') {
     const L = currentLang === 'en';
@@ -1435,10 +1548,7 @@ function _getGroupByColumns(tasks) {
 }
 
 function _getTaskColId(task, columns) {
-  if (_groupBy === 'bucket') {
-    const idSet = new Set(columns.map(c => c.id));
-    return (task.bucket_id && idSet.has(task.bucket_id)) ? task.bucket_id : columns[0].id;
-  }
+  if (_groupBy === 'status') return task.status || 'not_started';
   if (_groupBy === 'priority') return task.priority || 'none_p';
   if (_groupBy === 'assignee') return task.assignee || 'unassigned';
   if (_groupBy === 'due_date') {
@@ -1480,31 +1590,30 @@ function renderFilterBar() {
   const bar = document.getElementById('task-filter-bar');
   if (!bar) return;
   const { projects } = _taskData;
+  const L = currentLang === 'en';
+
+  const noProj = L ? 'No project' : 'Sin proyecto';
   const allBtn = `<button class="task-filter-btn${_filterProjectId === null ? ' active' : ''}" onclick="_setFilter(null)">${t('task_filter_all')}</button>`;
+  const noProjBtn = `<button class="task-filter-btn${_filterProjectId === 'none' ? ' active' : ''}" onclick="_setFilter('none')">${noProj}</button>`;
   const projBtns = (projects || []).map(p => {
     const color = _projectColor(p);
     const active = _filterProjectId === p.id ? ' active' : '';
     return `<button class="task-filter-btn${active}" style="--f-color:${color}" onclick="_setFilter('${p.id}')">${escHtml(p.name)}</button>`;
   }).join('');
-  const L = currentLang === 'en';
+
   const boardControls = _boardView ? `
     <div class="task-filter-actions">
-      <select class="task-groupby-select" onchange="_setGroupBy(this.value)" title="${L?'Group by':'Agrupar por'}">
-        <option value="bucket"${_groupBy==='bucket'?' selected':''}>${L?'Group: Bucket':'Agrupar: Columna'}</option>
-        <option value="priority"${_groupBy==='priority'?' selected':''}>${L?'Group: Priority':'Agrupar: Prioridad'}</option>
-        <option value="assignee"${_groupBy==='assignee'?' selected':''}>${L?'Group: Assignee':'Agrupar: Responsable'}</option>
-        <option value="due_date"${_groupBy==='due_date'?' selected':''}>${L?'Group: Due Date':'Agrupar: Fecha'}</option>
+      <span class="task-groupby-label">${L ? 'Group by' : 'Agrupar'}</span>
+      <select class="task-groupby-select" onchange="_setGroupBy(this.value)">
+        <option value="status"${_groupBy==='status'?' selected':''}>${L?'Status':'Estado'}</option>
+        <option value="priority"${_groupBy==='priority'?' selected':''}>${L?'Priority':'Prioridad'}</option>
+        <option value="assignee"${_groupBy==='assignee'?' selected':''}>${L?'Assignee':'Responsable'}</option>
+        <option value="due_date"${_groupBy==='due_date'?' selected':''}>${L?'Due date':'Fecha'}</option>
       </select>
-      <select class="task-sort-select" onchange="_setSortBy(this.value)">
-        <option value="">${t('sort_placeholder')}</option>
-        <option value="end_date"${_sortBy==='end_date'?' selected':''}>${t('sort_end_date')}</option>
-        <option value="priority"${_sortBy==='priority'?' selected':''}>${t('sort_priority')}</option>
-        <option value="title"${_sortBy==='title'?' selected':''}>${t('sort_title')}</option>
-        <option value="tag"${_sortBy==='tag'?' selected':''}>${t('sort_tag')}</option>
-      </select>
-      ${_groupBy === 'bucket' ? `<button class="kanban-add-col-btn" onclick="_addBucket()">${t('bucket_add')}</button>` : ''}
+      ${['status', 'priority'].includes(_groupBy) ? `<button class="kanban-add-col-btn" onclick="_addColumn()"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> ${L ? 'Column' : 'Columna'}</button>` : ''}
     </div>` : '';
-  bar.innerHTML = `<div class="task-filter-pills">${allBtn}${projBtns}</div>${boardControls}`;
+
+  bar.innerHTML = `<div class="task-filter-pills">${allBtn}${noProjBtn}${projBtns}</div>${boardControls}`;
 }
 
 function _setFilter(projectId) {
@@ -1514,8 +1623,7 @@ function _setFilter(projectId) {
 }
 
 function _filteredTasks() {
-  const currentView = _boardView ? 'board' : 'list';
-  const tasks = (_taskData.tasks || []).filter(t => !t.view || t.view === currentView);
+  const tasks = _taskData.tasks || [];
   if (_filterProjectId === null) return tasks;
   return tasks.filter(t => (t.project_id || 'none') === _filterProjectId);
 }
@@ -1609,9 +1717,12 @@ function _renderTaskRow(task, subitems, isSubitem) {
         ${claudeBadge}
         <button class="task-row-detail" data-detail-task="${task.id}">···</button>
       </div>
-      <div><select class="task-status-select ${_statusCls(task.status)}" data-status-task="${task.id}">
-           ${STATUS_CYCLE.map(s => `<option value="${s}" ${task.status === s ? 'selected' : ''}>${_statusLabel(s)}</option>`).join('')}
-      </select></div>
+      <div>
+        <select class="task-status-select ${_statusCls(task.status)}" data-status-task="${task.id}">
+          ${STATUS_CYCLE.map(s => `<option value="${s}" ${task.status === s ? 'selected' : ''}>${_statusLabel(s)}</option>`).join('')}
+          ${_customStatuses.map(s => `<option value="${escHtml(s.id)}" ${task.status === s.id ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
+        </select>
+      </div>
       <div><input class="task-cell-input" type="text" value="${escHtml(task.assignee || '')}"
            placeholder="—" data-task-field="${task.id}:assignee"></div>
       <div><input class="task-cell-input task-date-input" type="date" value="${_toDateInput(task.start_date)}"
@@ -1757,7 +1868,7 @@ function _startAddTask(addRow) {
     if (committed) return; committed = true;
     const title = input.value.trim();
     if (!title) { renderTaskBoard(); return; }
-    const task = await pywebview.api.create_task(projectId, title, parentId, '', '', '', '', '', '', [], 'list');
+    const task = await pywebview.api.create_task(projectId, title, parentId, '', '', '', '', '', '', [], '');
     _taskData.tasks.push(task);
     renderTaskBoard();
     refreshPendingBadge();
@@ -1775,7 +1886,7 @@ function renderKanbanBoard() {
   const body = document.getElementById('task-board-body');
   if (!body) return;
   const tasks = _filteredTasks();
-  const isVirtual = _groupBy !== 'bucket';
+  const isVirtual = _groupBy !== 'status';
   const columns = _getGroupByColumns(tasks);
   body.innerHTML = `
     <div class="kanban-board" id="kanban-board">
@@ -1786,28 +1897,56 @@ function renderKanbanBoard() {
 
 function _renderKanbanColumn(col, colTasks, isVirtual = false) {
   const cards = colTasks.map(t => _renderKanbanCard(t)).join('');
-  const colHeader = isVirtual
-    ? `<div class="kanban-col-header">
-        <span class="kanban-col-color-dot" style="background:${col.color};pointer-events:none"></span>
-        <span class="kanban-col-title">${escHtml(col.name)}</span>
-        <span class="kanban-col-count">${colTasks.length}</span>
-       </div>`
-    : `<div class="kanban-col-header" draggable="true"
-            ondragstart="_onColDragStart(event,'${col.id}')"
-            ondragend="_onColDragEnd()">
-        <span class="kanban-col-drag-handle">⠿</span>
-        <span class="kanban-col-color-dot" style="background:${col.color}"
-              data-color-bucket="${col.id}" title="Cambiar color"></span>
-        <span class="kanban-col-title" contenteditable="true"
-              data-title-bucket="${col.id}"
-              spellcheck="false">${escHtml(col.name)}</span>
-        <span class="kanban-col-count">${colTasks.length}</span>
-        <button class="kanban-col-del" data-del-bucket="${col.id}" title="Eliminar columna">×</button>
-       </div>`;
-  const colAttrs = isVirtual ? '' :
-    `ondragover="_onColDragOver(event,'${col.id}')" ondragleave="_onColDragLeave(event)" ondrop="_onColDrop(event,'${col.id}')"`;
-  const addBtn = isVirtual ? '' :
-    `<button class="kanban-col-add-btn" data-add-bucket="${col.id}">+ ${t('task_add_task').replace('+ ','')}</button>`;
+  const isStatusMode   = _groupBy === 'status';
+  const isCustomStatus = isStatusMode && _customStatuses.some(s => s.id === col.id);
+
+  let colHeader;
+  if (isVirtual) {
+    // assignee / due_date: read-only plain header
+    colHeader = `<div class="kanban-col-header">
+      <span class="kanban-col-color-dot" style="background:${col.color};pointer-events:none"></span>
+      <span class="kanban-col-title">${escHtml(col.name)}</span>
+      <span class="kanban-col-count">${colTasks.length}</span>
+    </div>`;
+  } else if (isStatusMode) {
+    // status: draggable, deletable; rename only for custom statuses
+    const titleEl = isCustomStatus
+      ? `<span class="kanban-col-title" contenteditable="true" data-title-status="${col.id}" spellcheck="false">${escHtml(col.name)}</span>`
+      : `<span class="kanban-col-title">${escHtml(col.name)}</span>`;
+    colHeader = `<div class="kanban-col-header" draggable="true"
+        ondragstart="_onColDragStart(event,'${col.id}')"
+        ondragend="_onColDragEnd()">
+      <span class="kanban-col-drag-handle">⠿</span>
+      <span class="kanban-col-color-dot" style="background:${col.color};pointer-events:none"></span>
+      ${titleEl}
+      <span class="kanban-col-count">${colTasks.length}</span>
+      <button class="kanban-col-del" data-del-status-col="${col.id}" title="Eliminar columna">×</button>
+    </div>`;
+  } else {
+    // bucket: fully editable with drag-to-reorder
+    colHeader = `<div class="kanban-col-header" draggable="true"
+        ondragstart="_onColDragStart(event,'${col.id}')"
+        ondragend="_onColDragEnd()">
+      <span class="kanban-col-drag-handle">⠿</span>
+      <span class="kanban-col-color-dot" style="background:${col.color}"
+            data-color-bucket="${col.id}" title="Cambiar color"></span>
+      <span class="kanban-col-title" contenteditable="true"
+            data-title-bucket="${col.id}"
+            spellcheck="false">${escHtml(col.name)}</span>
+      <span class="kanban-col-count">${colTasks.length}</span>
+      <button class="kanban-col-del" data-del-bucket="${col.id}" title="Eliminar columna">×</button>
+    </div>`;
+  }
+
+  const colAttrs = isVirtual ? '' : isStatusMode
+    ? `ondragover="_onColDragOver(event,'${col.id}')" ondragleave="_onColDragLeave(event)" ondrop="_onColDropStatus(event,'${col.id}')"`
+    : `ondragover="_onColDragOver(event,'${col.id}')" ondragleave="_onColDragLeave(event)" ondrop="_onColDrop(event,'${col.id}')"` ;
+
+  const canAddTask = !isVirtual; // bucket and status both allow adding tasks
+  const addBtn = canAddTask
+    ? `<button class="kanban-col-add-btn" data-add-col="${col.id}">+ ${t('task_add_task').replace('+ ','')}</button>`
+    : '';
+
   return `
   <div class="kanban-col" data-bucket-id="${col.id}" ${colAttrs}>
     ${colHeader}
@@ -1952,11 +2091,12 @@ function _onDropCard(event, colId) {
   if (!task) { _dragTaskId = null; return; }
 
   let updates = {};
-  if (_groupBy === 'bucket') {
-    if (task.bucket_id === colId) { _dragTaskId = null; return; }
-    task.bucket_id = colId;
-    updates = {bucket_id: colId};
-    _syncStatusFromBucket(task, colId);
+  if (_groupBy === 'status') {
+    const cur = task.status || 'not_started';
+    if (cur === colId) { _dragTaskId = null; return; }
+    task.status = colId;
+    updates = {status: colId};
+    _syncBucketFromStatus(task, colId);
   } else if (_groupBy === 'priority') {
     const prio = colId === 'none_p' ? null : colId;
     if ((task.priority || null) === prio) { _dragTaskId = null; return; }
@@ -2017,6 +2157,21 @@ function _onColDrop(event, targetBucketId) {
   _buckets.forEach((b, i) => { b.order = i; });
   _dragBucketId = null;
   pywebview.api.save_buckets(_buckets);
+  renderKanbanBoard();
+}
+
+function _onColDropStatus(event, targetId) {
+  event.preventDefault();
+  if (!_dragBucketId || _dragBucketId === targetId) { _dragBucketId = null; return; }
+  event.currentTarget.classList.remove('col-drag-over');
+  const allCols = _getGroupByColumns([]);
+  if (!_statusColumnOrder.length) _statusColumnOrder = allCols.map(c => c.id);
+  const fromIdx = _statusColumnOrder.indexOf(_dragBucketId);
+  const toIdx   = _statusColumnOrder.indexOf(targetId);
+  if (fromIdx === -1 || toIdx === -1) { _dragBucketId = null; return; }
+  _statusColumnOrder.splice(toIdx, 0, _statusColumnOrder.splice(fromIdx, 1)[0]);
+  _dragBucketId = null;
+  pywebview.api.save_status_column_order(_statusColumnOrder);
   renderKanbanBoard();
 }
 
@@ -2151,36 +2306,123 @@ function _bindKanbanEvents() {
   board.querySelectorAll('[data-del-bucket]').forEach(btn => {
     btn.addEventListener('click', () => _deleteBucket(btn.dataset.delBucket));
   });
-  board.querySelectorAll('[data-add-bucket]').forEach(btn => {
-    btn.addEventListener('click', () => _startAddTaskInBucket(btn.dataset.addBucket));
+  board.querySelectorAll('[data-add-col]').forEach(btn => {
+    btn.addEventListener('click', () => _startAddTaskInColumn(btn.dataset.addCol));
+  });
+
+  board.querySelectorAll('[data-del-status-col]').forEach(btn => {
+    btn.addEventListener('click', () => _deleteStatusColumn(btn.dataset.delStatusCol));
+  });
+
+  board.querySelectorAll('[data-title-status]').forEach(el => {
+    el.addEventListener('blur', () => {
+      const id = el.dataset.titleStatus;
+      const st = _customStatuses.find(s => s.id === id);
+      if (st && el.textContent.trim()) { st.name = el.textContent.trim(); pywebview.api.save_custom_statuses(_customStatuses); }
+    });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
   });
 }
 
-function _startAddTaskInBucket(bucketId) {
-  const col = document.querySelector(`[data-bucket-id="${bucketId}"] .kanban-col-body`);
-  if (!col) return;
-  const inp = document.createElement('input');
-  inp.className = 'kanban-card-new-input';
-  inp.placeholder = t('task_new_ph') || 'Nueva tarea...';
-  col.appendChild(inp);
+function _startAddTaskInColumn(colId) {
+  const colEl = document.querySelector(`[data-bucket-id="${colId}"] .kanban-col-body`);
+  if (!colEl) return;
+
+  const projects = _taskData.projects || [];
+  const L = currentLang === 'en';
+  const projOpts = `<option value="">${L ? 'No project' : 'Sin proyecto'}</option>` +
+    projects.map(p => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
+
+  const card = document.createElement('div');
+  card.className = 'kanban-card-new-form';
+  card.innerHTML = `
+    <input class="kanban-card-new-input" type="text" placeholder="${t('task_new_ph') || 'Nueva tarea...'}">
+    <select class="kanban-card-new-proj">${projOpts}</select>`;
+  colEl.appendChild(card);
+
+  const inp = card.querySelector('.kanban-card-new-input');
+  const sel = card.querySelector('.kanban-card-new-proj');
   inp.focus();
+
   let committed = false;
   const commit = async () => {
     if (committed) return; committed = true;
     const title = inp.value.trim();
-    inp.remove();
+    card.remove();
     if (!title) return;
-    const task = await pywebview.api.create_task('none', title, '', '', '', '', bucketId, '', '', [], 'board');
-    task.bucket_id = bucketId;
+    const projectId = sel.value || 'none';
+
+    let task;
+    if (_groupBy === 'status') {
+      task = await pywebview.api.create_task(projectId, title, '', '', '', '', '', '', '', [], '', colId);
+      task.status = colId;
+    } else {
+      task = await pywebview.api.create_task(projectId, title, '', '', '', '', colId, '', '', [], '');
+      task.bucket_id = colId;
+    }
     _taskData.tasks.push(task);
     renderKanbanBoard();
     refreshPendingBadge();
   };
-  inp.addEventListener('blur', commit);
+
   inp.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); commit(); }
     if (e.key === 'Escape') { inp.value = ''; commit(); }
   });
+  sel.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { sel.value = ''; commit(); }
+  });
+  card.addEventListener('focusout', e => {
+    if (!card.contains(e.relatedTarget)) commit();
+  });
+}
+
+async function _addColumn() {
+  const L = currentLang === 'en';
+  const label = _groupBy === 'status'
+    ? (L ? 'status' : 'estado')
+    : (L ? 'priority' : 'nivel de prioridad');
+  const name = prompt(L ? `New ${label} name:` : `Nombre del nuevo ${label}:`, '');
+  if (!name || !name.trim()) return;
+  const colors = ['#6b7280','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#ef4444','#06b6d4'];
+  const id = `custom-${_groupBy}-` + Date.now();
+  const entry = { id, name: name.trim(), color: colors[(_customStatuses.length + _customPriorities.length) % colors.length] };
+  if (_groupBy === 'status') {
+    _customStatuses.push(entry);
+    await pywebview.api.save_custom_statuses(_customStatuses);
+  } else if (_groupBy === 'priority') {
+    _customPriorities.push(entry);
+    await pywebview.api.save_custom_priorities(_customPriorities);
+  }
+  renderKanbanBoard();
+}
+
+async function _deleteStatusColumn(id) {
+  const allCols = _getGroupByColumns([]);
+  const col = allCols.find(c => c.id === id);
+  const remaining = allCols.filter(c => c.id !== id);
+  if (!remaining.length) return; // no borrar si es la única columna
+  const fallback = remaining[0].id;
+  const taskCount = _taskData.tasks.filter(t => (t.status || 'not_started') === id).length;
+  const L = currentLang === 'en';
+  const msg = L
+    ? `Delete column "${col?.name || id}"?${taskCount ? ` ${taskCount} task(s) will move to "${_statusLabel(fallback)}".` : ''}`
+    : `¿Eliminar la columna "${col?.name || id}"?${taskCount ? ` ${taskCount} tarea(s) pasarán a "${_statusLabel(fallback)}".` : ''}`;
+  if (!confirm(msg)) return;
+  for (const tk of _taskData.tasks.filter(t => (t.status || 'not_started') === id)) {
+    tk.status = fallback;
+    await pywebview.api.update_task(tk.id, {status: fallback});
+  }
+  // Remove from order list
+  if (_statusColumnOrder.length) _statusColumnOrder = _statusColumnOrder.filter(sid => sid !== id);
+  await pywebview.api.save_status_column_order(_statusColumnOrder);
+  // If custom status, remove from custom list too
+  if (_customStatuses.some(s => s.id === id)) {
+    _customStatuses = _customStatuses.filter(s => s.id !== id);
+    await pywebview.api.save_custom_statuses(_customStatuses);
+  }
+  renderKanbanBoard();
 }
 
 // ── Task detail drawer ────────────────────────────────────────────────────────
@@ -2642,6 +2884,21 @@ async function loadProjectsSettings(editingId = null) {
           </div>
           ${!hasFolder ? `<div class="settings-card-desc" style="margin-top:6px;color:var(--muted)">${t('export_needs_folder')}</div>` : ''}
         </div>
+        <div style="margin-top:12px">
+          <div class="proj-field-label">${t('proj_context_label')}</div>
+          <div class="settings-card-desc" style="margin:3px 0 7px">${t('proj_context_desc')}</div>
+          <div class="proj-context-dirs" id="context-dirs-${pid}">
+            ${(p.context_dirs || []).length
+              ? (p.context_dirs || []).map((d, i) => `
+                <div class="proj-context-dir-row">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.5"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+                  <span class="proj-context-dir-path" title="${escHtml(d)}">${escHtml(d)}</span>
+                  ${isEditing ? `<button class="proj-context-dir-del" onclick="removeContextDir('${pid}',${i})" title="Quitar">✕</button>` : ''}
+                </div>`).join('')
+              : `<div class="proj-context-dir-empty">${t('proj_context_empty')}</div>`}
+          </div>
+          ${isEditing ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="browseContextDir('${pid}')">${t('proj_context_add')}</button>` : ''}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -2762,7 +3019,30 @@ async function browseProjectFolder(pid) {
   if (!proj) return;
   proj.output_dir = path;
   await pywebview.api.save_project(proj);
-  await loadProjectsSettings(_editingProjectId);  // mantener el modo edición si estaba activo
+  await loadProjectsSettings(_editingProjectId);
+}
+
+async function browseContextDir(pid) {
+  const path = await pywebview.api.browse_project_folder();
+  if (!path) return;
+  const projects = await pywebview.api.get_projects();
+  const proj = projects.find(p => p.id === pid);
+  if (!proj) return;
+  proj.context_dirs = proj.context_dirs || [];
+  if (!proj.context_dirs.includes(path)) {
+    proj.context_dirs.push(path);
+    await pywebview.api.save_project(proj);
+    await loadProjectsSettings(_editingProjectId);
+  }
+}
+
+async function removeContextDir(pid, idx) {
+  const projects = await pywebview.api.get_projects();
+  const proj = projects.find(p => p.id === pid);
+  if (!proj) return;
+  proj.context_dirs = (proj.context_dirs || []).filter((_, i) => i !== idx);
+  await pywebview.api.save_project(proj);
+  await loadProjectsSettings(_editingProjectId);
 }
 
 async function clearProjectFolder(pid) {
@@ -2875,17 +3155,6 @@ async function moveToPanel(path, index, btn) {
   if (meeting?.project_id) projSelect.value = meeting.project_id;
   _populateParentSelect(projSelect.value, data.tasks || []);
   projSelect.onchange = () => _populateParentSelect(projSelect.value, data.tasks || []);
-  // Wire up view toggle
-  document.getElementById('modal-view-toggle').querySelectorAll('.toggle-btn').forEach(btn => {
-    btn.onclick = () => {
-      document.getElementById('modal-view-toggle').querySelectorAll('.toggle-btn')
-        .forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-    };
-  });
-  // Reset toggle to list by default
-  document.getElementById('modal-view-toggle').querySelectorAll('.toggle-btn')
-    .forEach(b => b.classList.toggle('active', b.dataset.view === 'list'));
   _pendingPanelAction = { path, index, btn };
   document.getElementById('panel-modal').classList.remove('hidden');
 }
@@ -2907,11 +3176,8 @@ async function confirmMoveToPanel() {
   const { path, index, btn } = _pendingPanelAction;
   const projectId = document.getElementById('modal-project-select').value;
   const parentId  = document.getElementById('modal-parent-select').value;
-  const activeViewBtn = document.querySelector('#modal-view-toggle .toggle-btn.active');
-  const targetView = activeViewBtn?.dataset.view || 'list';
-  const bucketId = targetView === 'board' ? (_buckets[0]?.id || 'pendiente') : null;
   closePanelModal();
-  const taskId = await pywebview.api.move_action_to_panel(path, index, projectId, parentId || null, bucketId || null);
+  const taskId = await pywebview.api.move_action_to_panel(path, index, projectId, parentId || null, null);
   if (taskId) {
     btn.textContent = t('btn_in_panel');
     btn.classList.add('btn-in-panel');
@@ -2919,7 +3185,6 @@ async function confirmMoveToPanel() {
     await refreshPendingBadge();
     showToast(t('toast_moved'));
     showView('actions');
-    setTaskView(targetView);
     await loadTaskBoard();
   }
 }
@@ -3622,21 +3887,55 @@ async function updatePipelineFooter() {
   const anyRecording = jobs.some(j => j.stage === 'recording');
   dot.className = 'pipeline-tab-dot ' + (anyRecording ? 'recording' : 'processing');
 
+  const L = currentLang === 'en';
   body.innerHTML = jobs.map(j => {
-    const dotClass   = j.stage === 'recording' ? 'recording' : 'processing';
-    const pct        = j.pct ?? null;
-    const stageLabel = j.stage_label || j.stage || '';
-    const progHtml   = pct != null
-      ? `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:${pct}%"></div></div>`
-      : `<div class="pipeline-job-progress" style="overflow:hidden;position:relative"><div class="pipeline-job-progress-fill shimmer"></div></div>`;
+    const dotClass = j.stage === 'recording' ? 'recording' : j.stage === 'queued' ? 'queued' : 'processing';
+    const pct      = j.pct ?? null;
+
+    // Title line: prefer parsed title, fall back to raw label
+    const titleText = j.title || (j.stage === 'recording' ? (L ? 'Recording...' : 'Grabando...') : j.label);
+    const timeText  = j.time ? `<span class="pipeline-job-time">${escHtml(j.time)}</span>` : '';
+
+    // Step pills: show for recording and processing stages
+    let stepsHtml = '';
+    if (j.total_steps && j.stage !== 'queued') {
+      const stepDefs = L
+        ? ['Recording', 'Transcribing', 'Minutes', 'Actions']
+        : ['Grabando',  'Transcribiendo', 'Minutas', 'Acciones'];
+      // steps: 0=recording, 1=transcription, 2=minutes, 3=actions
+      const curStep = j.step ?? 0;
+      stepsHtml = `<div class="pipeline-job-steps">
+        ${stepDefs.slice(0, j.total_steps + 1).map((name, i) => {
+          const cls = i < curStep ? 'done' : i === curStep ? 'active' : 'pending';
+          return `<span class="pipeline-step-pill ${cls}">${escHtml(name)}</span>`;
+        }).join('<span class="pipeline-step-arrow">›</span>')}
+      </div>`;
+    }
+
+    // Progress bar
+    let progHtml;
+    if (j.stage === 'queued') {
+      progHtml = `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:0%"></div></div>`;
+    } else if (pct != null) {
+      progHtml = `<div class="pipeline-job-progress"><div class="pipeline-job-progress-fill" style="width:${pct}%"></div></div>`;
+    } else {
+      progHtml = `<div class="pipeline-job-progress shimmer-wrap"><div class="pipeline-job-progress-fill shimmer"></div></div>`;
+    }
+
+    // Elapsed for recording
+    const elapsedHtml = (j.stage === 'recording' && j.elapsed != null)
+      ? `<span class="pipeline-job-elapsed">${Math.floor(j.elapsed/60).toString().padStart(2,'0')}:${(j.elapsed%60).toString().padStart(2,'0')}</span>`
+      : (pct != null ? `<span class="pipeline-job-pct">${pct}%</span>` : '');
+
     return `
       <div class="pipeline-job-card ${dotClass}">
         <div class="pipeline-job-header">
           <span class="pipeline-job-dot ${dotClass}"></span>
-          <span class="pipeline-job-label">${escHtml(j.label)}</span>
-          ${pct != null ? `<span class="pipeline-job-pct">${pct}%</span>` : ''}
+          <span class="pipeline-job-label">${escHtml(titleText)}</span>
+          ${timeText}
+          ${elapsedHtml}
         </div>
-        ${stageLabel ? `<div class="pipeline-job-stage">${escHtml(stageLabel)}</div>` : ''}
+        ${stepsHtml}
         ${progHtml}
       </div>`;
   }).join('');
@@ -3912,11 +4211,11 @@ async function _copyActionsTable(path) {
     a.date || '—',
     a.deadline || '—',
   ]);
-  const TH = 'text-align:left;padding:9px 14px;border:1px solid #c4b5fd;background:#7c3aed;color:#fff;font-family:Calibri,Arial,sans-serif;font-size:13px;font-weight:600;letter-spacing:0.3px';
-  const TD = (even) => `padding:8px 14px;border:1px solid #e5e7eb;font-family:Calibri,Arial,sans-serif;font-size:13px;color:#1a1a2e;background:${even ? '#faf5ff' : '#fff'}`;
+  const TH = 'text-align:center;padding:10px 16px;border:1px solid #9ca3af;background:#374151;color:#fff;font-family:Calibri,Arial,sans-serif;font-size:13px;font-weight:600;letter-spacing:0.3px;white-space:nowrap';
+  const TD = (even) => `text-align:center;padding:8px 16px;border:1px solid #e5e7eb;font-family:Calibri,Arial,sans-serif;font-size:13px;color:#1a1a2e;background:${even ? '#f9fafb' : '#fff'};white-space:nowrap`;
   const th  = heads.map(h => `<th style="${TH}">${escHtml(h)}</th>`).join('');
   const trs = rows.map((r, i) => `<tr>${r.map(c => `<td style="${TD(i % 2 === 1)}">${escHtml(c)}</td>`).join('')}</tr>`).join('');
-  const rich = `<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:13px;width:100%"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  const rich = `<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:13px;width:auto"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
   const text = [heads.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
   _copyRich(rich, text);
 }
@@ -3931,8 +4230,8 @@ function _inlineStyles(html) {
   const BD = 'border-bottom:1.5px solid #e5e7eb;padding-bottom:5px;margin:18px 0 8px';
 
   div.querySelectorAll('h1').forEach(el => el.setAttribute('style', `font-size:20px;font-weight:700;color:#1a1a2e;${BD};font-family:Calibri,Arial,sans-serif`));
-  div.querySelectorAll('h2').forEach(el => el.setAttribute('style', `font-size:16px;font-weight:700;color:#1a1a2e;${BD};font-family:Calibri,Arial,sans-serif`));
-  div.querySelectorAll('h3').forEach(el => el.setAttribute('style', `font-size:14px;font-weight:600;color:#374151;margin:12px 0 5px;font-family:Calibri,Arial,sans-serif`));
+  div.querySelectorAll('h2').forEach(el => el.setAttribute('style', `font-size:16px;font-weight:700;color:#1a1a2e;text-decoration:underline;${BD};font-family:Calibri,Arial,sans-serif`));
+  div.querySelectorAll('h3').forEach(el => el.setAttribute('style', `font-size:14px;font-weight:700;color:#374151;text-decoration:underline;margin:12px 0 5px;font-family:Calibri,Arial,sans-serif`));
   div.querySelectorAll('p').forEach(el  => el.setAttribute('style', `margin:0 0 9px;color:#374151;font-family:Calibri,Arial,sans-serif;font-size:13px;line-height:1.65`));
   div.querySelectorAll('ul,ol').forEach(el => el.setAttribute('style', `margin:0 0 10px;padding-left:22px;color:#374151;font-family:Calibri,Arial,sans-serif;font-size:13px`));
   div.querySelectorAll('li').forEach(el  => el.setAttribute('style', `margin-bottom:5px;color:#374151`));
@@ -3962,7 +4261,8 @@ async function _loadStickies(path) {
 }
 
 function _stickyHtml(s) {
-  return `<div class="sticky-note${s.minimized ? ' min' : ''}" data-sid="${escHtml(s.id)}">
+  const x = s.x ?? 20, y = s.y ?? 20;
+  return `<div class="sticky-note${s.minimized ? ' min' : ''}" data-sid="${escHtml(s.id)}" style="left:${x}px;top:${y}px;">
     <div class="sticky-head">
       <span class="sticky-preview">${escHtml((s.text || '').split('\n')[0].slice(0, 28))}</span>
       <button class="sticky-btn sticky-min" title="${t('sticky_min')}">${s.minimized ? '+' : '–'}</button>
@@ -3998,6 +4298,31 @@ function _wireStickies() {
       if (found) found.text = ta.value;
       _saveStickies();
     };
+    // Drag to reposition
+    const head = node.querySelector('.sticky-head');
+    head.addEventListener('mousedown', e => {
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      const layerRect = layer.getBoundingClientRect();
+      const offX = e.clientX - node.getBoundingClientRect().left;
+      const offY = e.clientY - node.getBoundingClientRect().top;
+      node.classList.add('dragging');
+      const onMove = ev => {
+        const nx = Math.max(0, ev.clientX - layerRect.left - offX);
+        const ny = Math.max(0, ev.clientY - layerRect.top  - offY);
+        node.style.left = nx + 'px';
+        node.style.top  = ny + 'px';
+      };
+      const onUp = () => {
+        node.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+        const s = _stickies.find(x => x.id === id);
+        if (s) { s.x = parseInt(node.style.left)||0; s.y = parseInt(node.style.top)||0; _saveStickies(); }
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
   });
 }
 
@@ -4005,7 +4330,11 @@ function addSticky() {
   if (!currentPath) return;
   const layer = document.getElementById('sticky-layer');
   if (!layer) return;
-  const s = { id: 'st' + Date.now(), text: '', minimized: false };
+  const offset = _stickies.length * 24;
+  const header = document.querySelector('.detail-header');
+  const tabs   = document.querySelector('.detail-tabs');
+  const topOffset = (header ? header.offsetHeight : 80) + (tabs ? tabs.offsetHeight : 40) + 12;
+  const s = { id: 'st' + Date.now(), text: '', minimized: false, x: 20 + offset, y: topOffset + offset };
   _stickies.push(s);
   layer.insertAdjacentHTML('beforeend', _stickyHtml(s));
   _wireStickies();

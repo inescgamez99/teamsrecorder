@@ -142,6 +142,17 @@ def delete_task(task_id: str) -> bool:
     return False
 
 
+def get_custom_values(field: str) -> list:
+    return _load().get(field, [])
+
+
+def save_custom_values(field: str, values: list) -> bool:
+    data = _load()
+    data[field] = values
+    _save(data)
+    return True
+
+
 def migrate_panel_actions() -> int:
     """One-time import of all in_panel=True actions from meeting JSONs into tasks.json.
     Safe to call on every startup — no-op after first run."""
