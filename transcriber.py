@@ -43,10 +43,9 @@ def _format_time(secs: float) -> str:
 
 def _transcribe_local(audio_path: Path, on_progress=None, on_segment=None) -> tuple[str, str]:
     model = _get_model()
-    lang = WHISPER_LANGUAGE
     segments, info = model.transcribe(
         str(audio_path),
-        language=lang,
+        language=None,  # always auto-detect; forcing a language translates instead of transcribing
         beam_size=1,
         condition_on_previous_text=False,
         vad_filter=True,

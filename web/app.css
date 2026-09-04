@@ -1762,3 +1762,14 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
 .task-date-input::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
 .drawer-date-input { cursor: pointer; }
 .drawer-date-input::-webkit-calendar-picker-indicator { opacity: 0.6; cursor: pointer; }
+
+/* ── Print / PDF ── */
+@media print {
+  #sidebar, .detail-actions-bar, .detail-tabs, .regen-bar, .sticky-layer,
+  .detail-header, #pipeline-tab, #pipeline-panel, #nav-rail { display: none !important; }
+  #section-notes { display: block !important; }
+  #section-actions, #section-transcript { display: none !important; }
+  .minutes-content { padding: 0; max-width: 100%; color: #000; }
+  .main-panel { box-shadow: none; }
+  a { color: inherit; text-decoration: none; }
+}

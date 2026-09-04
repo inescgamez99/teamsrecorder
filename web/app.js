@@ -159,6 +159,11 @@ const T = {
     proj_context_desc: 'Carpetas de documentos que Claude usará como contexto al generar minutas (READMEs, PRDs, specs técnicas…). Se sincronizan automáticamente.',
     proj_context_add: '+ Añadir carpeta',
     proj_context_empty: 'Sin carpetas de memoria',
+    proj_pdf_label: 'Auto-guardar PDF',
+    proj_pdf_desc: 'Guardar un PDF automáticamente en esta carpeta cada vez que se generen minutas.',
+    proj_pdf_empty: 'Sin carpeta configurada',
+    proj_pdf_browse: 'Seleccionar carpeta',
+    pdf_download: 'Descargar PDF',
     account_settings_title: 'Cuenta',
     project_settings_title: 'Configuración de proyectos',
     no_projects: 'Sin proyectos',
@@ -349,6 +354,11 @@ const T = {
     proj_context_desc: 'Document folders Claude will use as context when generating minutes (READMEs, PRDs, technical specs…). Synced automatically.',
     proj_context_add: '+ Add folder',
     proj_context_empty: 'No memory folders',
+    proj_pdf_label: 'Auto-save PDF',
+    proj_pdf_desc: 'Save a PDF automatically to this folder whenever minutes are generated.',
+    proj_pdf_empty: 'No folder configured',
+    proj_pdf_browse: 'Select folder',
+    pdf_download: 'Download PDF',
     account_settings_title: 'Account',
     project_settings_title: 'Project settings',
     no_projects: 'No projects yet',
@@ -584,9 +594,7 @@ function _wireSidebarItems(list) {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       await pywebview.api.toggle_pin(btn.dataset.pinPath);
-      const ms = await pywebview.api.get_meetings();
-      allMeetings = ms; meetingPaths = ms.map(m => m.path);
-      renderSidebar(allMeetings);
+      await refreshMeetingList();
     });
   });
   list.querySelectorAll('.btn-delete-meeting').forEach(btn => {
@@ -903,6 +911,7 @@ function _updateActionBar(tab) {
   // Dropdown items (notes only)
   show('btn-regenerate', tab === 'notes');
   show('btn-html',       tab === 'notes');
+  show('btn-pdf',        tab === 'notes');
 
   // ··· only on notes (has sticky + regenerate + html); actions and transcript have nothing there
   show('btn-more', tab === 'notes');
@@ -968,6 +977,7 @@ async function openMeeting(path) {
               <button class="action-menu-item" id="btn-sticky"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-6a1 1 0 0 1 1-1h6"/></svg><span>${t('sticky_add')}</span></button>
               <button class="action-menu-item" id="btn-regenerate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74"/><path d="M3 3v4h4"/></svg><span>${t('btn_regenerate')}</span></button>
               <button class="action-menu-item" id="btn-html"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>HTML</span></button>
+              <button class="action-menu-item" id="btn-pdf"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></svg><span>${t('pdf_download')}</span></button>
             </div>
           </div>
         </div>
@@ -1005,6 +1015,7 @@ async function openMeeting(path) {
     </div>`;
 
   document.getElementById('btn-html').addEventListener('click', () => openHtml(path));
+  document.getElementById('btn-pdf').addEventListener('click', () => { document.getElementById('action-menu').classList.add('hidden'); window.print(); });
   document.getElementById('btn-export-transcript').addEventListener('click', () => exportTranscript(path));
   document.getElementById('btn-claude').addEventListener('click', () => openMinutesInClaude(path));
   document.getElementById('btn-regenerate').addEventListener('click', () => { document.getElementById('action-menu').classList.add('hidden'); toggleRegenBar(); });
@@ -2899,6 +2910,20 @@ async function loadProjectsSettings(editingId = null) {
           </div>
           ${isEditing ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="browseContextDir('${pid}')">${t('proj_context_add')}</button>` : ''}
         </div>
+        <div style="margin-top:12px">
+          <div class="proj-field-label">${t('proj_pdf_label')}</div>
+          <div class="settings-card-desc" style="margin:3px 0 7px">${t('proj_pdf_desc')}</div>
+          <div class="proj-context-dirs" id="pdf-dir-${pid}">
+            ${p.pdf_output_dir
+              ? `<div class="proj-context-dir-row">
+                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.5"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+                   <span class="proj-context-dir-path" title="${escHtml(p.pdf_output_dir)}">${escHtml(p.pdf_output_dir)}</span>
+                   ${isEditing ? `<button class="proj-context-dir-del" onclick="removePdfDir('${pid}')" title="Quitar">✕</button>` : ''}
+                 </div>`
+              : `<div class="proj-context-dir-empty">${t('proj_pdf_empty')}</div>`}
+          </div>
+          ${isEditing ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="browsePdfDir('${pid}')">${t('proj_pdf_browse')}</button>` : ''}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -3041,6 +3066,26 @@ async function removeContextDir(pid, idx) {
   const proj = projects.find(p => p.id === pid);
   if (!proj) return;
   proj.context_dirs = (proj.context_dirs || []).filter((_, i) => i !== idx);
+  await pywebview.api.save_project(proj);
+  await loadProjectsSettings(_editingProjectId);
+}
+
+async function browsePdfDir(pid) {
+  const path = await pywebview.api.browse_project_folder();
+  if (!path) return;
+  const projects = await pywebview.api.get_projects();
+  const proj = projects.find(p => p.id === pid);
+  if (!proj) return;
+  proj.pdf_output_dir = path;
+  await pywebview.api.save_project(proj);
+  await loadProjectsSettings(_editingProjectId);
+}
+
+async function removePdfDir(pid) {
+  const projects = await pywebview.api.get_projects();
+  const proj = projects.find(p => p.id === pid);
+  if (!proj) return;
+  proj.pdf_output_dir = null;
   await pywebview.api.save_project(proj);
   await loadProjectsSettings(_editingProjectId);
 }

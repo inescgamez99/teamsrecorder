@@ -536,6 +536,25 @@ class TrayApp:
         except Exception as e:
             log.warning(f"Error exportando HTML: {e}")
 
+        try:
+            _pdf_dir = (_proj or {}).get('pdf_output_dir') if _proj else None
+            if _pdf_dir and Path(_pdf_dir).is_dir():
+                _html_p = MINUTES_DIR / f"{minutes_path.stem}.html"
+                _pdf_p  = Path(_pdf_dir) / f"{minutes_path.stem}.pdf"
+                _edge   = next((p for p in [
+                    r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+                    r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+                ] if Path(p).exists()), None)
+                if _edge and _html_p.exists():
+                    import subprocess as _sp
+                    _sp.run([_edge, '--headless', '--disable-gpu', '--no-pdf-header-footer',
+                             f'--print-to-pdf={_pdf_p}', f'file:///{_html_p}'],
+                            capture_output=True, timeout=60)
+                    if _pdf_p.exists():
+                        log.info(f"PDF auto-exportado a {_pdf_p}")
+        except Exception as _pdf_e:
+            log.warning(f"PDF auto-export fallido: {_pdf_e}")
+
         s = _STR.get(get_ui_language(), _STR['en'])
         self._notify('TeamsRecorder', s['action_items'])
         self._current_job.update({'step': 3, 'step_label': 'Generando acciones', 'step_started': time.time()})
