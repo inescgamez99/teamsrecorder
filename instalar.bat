@@ -3,6 +3,13 @@ chcp 65001 >nul 2>&1
 title TeamsRecorder - Instalador
 setlocal enabledelayedexpansion
 
+rem -- Relanzarse dentro de cmd /k para que la ventana nunca se cierre sola --
+if not defined TR_STARTED (
+    set TR_STARTED=1
+    cmd /k "%~f0"
+    exit /b
+)
+
 echo.
 echo ========================================
 echo   TeamsRecorder - Instalacion
@@ -10,10 +17,10 @@ echo ========================================
 echo.
 
 rem -------------------------------------------------------
-rem 1. Python
+rem 1. Python  (usar "where" para evitar abrir la Tienda de Windows)
 rem -------------------------------------------------------
 echo [1/3] Comprobando Python...
-python --version >nul 2>&1
+where python >nul 2>&1
 if errorlevel 1 (
     echo   Python no encontrado. Instalando via winget...
     winget install --id Python.Python.3.11 --source winget --silent --accept-package-agreements --accept-source-agreements
@@ -21,14 +28,14 @@ if errorlevel 1 (
         echo.
         echo   No se pudo instalar Python automaticamente.
         echo   Instalalo manualmente desde: https://www.python.org/downloads/
-        echo   Marca "Add Python to PATH" durante la instalacion.
+        echo   Marca "Add Python to PATH" durante la instalacion, cierra
+        echo   esta ventana y vuelve a hacer doble clic en instalar.bat
         echo.
-        pause
-        exit /b 1
+        goto :end
     )
-    echo   Python instalado. Recargando PATH...
-    call RefreshEnv.cmd >nul 2>&1
-    set "PATH=%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python311\Scripts;%PATH%"
+    echo   Python instalado. Abre una nueva ventana y vuelve a ejecutar instalar.bat
+    echo   para que Windows reconozca la instalacion.
+    goto :end
 ) else (
     for /f "tokens=2" %%v in ('python --version 2^>^&1') do echo   Python %%v encontrado.
 )
@@ -38,7 +45,7 @@ rem -------------------------------------------------------
 rem 2. Node.js
 rem -------------------------------------------------------
 echo [2/3] Comprobando Node.js...
-npm --version >nul 2>&1
+where npm >nul 2>&1
 if errorlevel 1 (
     echo   Node.js no encontrado. Instalando via winget...
     winget install --id OpenJS.NodeJS.LTS --source winget --silent --accept-package-agreements --accept-source-agreements
@@ -46,13 +53,12 @@ if errorlevel 1 (
         echo.
         echo   No se pudo instalar Node.js automaticamente.
         echo   Instalalo manualmente desde: https://nodejs.org/ ^(version LTS^)
+        echo   Cierra esta ventana y vuelve a hacer doble clic en instalar.bat
         echo.
-        pause
-        exit /b 1
+        goto :end
     )
-    echo   Node.js instalado. Recargando PATH...
-    for /f "tokens=*" %%p in ('where node 2^>nul') do set "NODEDIR=%%~dpp"
-    set "PATH=!NODEDIR!;!NODEDIR!node_modules\.bin;%PATH%"
+    echo   Node.js instalado. Abre una nueva ventana y vuelve a ejecutar instalar.bat.
+    goto :end
 ) else (
     for /f %%v in ('npm --version 2^>^&1') do echo   npm %%v encontrado.
 )
@@ -62,7 +68,7 @@ rem -------------------------------------------------------
 rem 3. Claude CLI
 rem -------------------------------------------------------
 echo [3/3] Comprobando Claude CLI...
-claude --version >nul 2>&1
+where claude >nul 2>&1
 if errorlevel 1 (
     echo   Claude CLI no encontrado. Instalando...
     npm install -g @anthropic-ai/claude-code
@@ -71,8 +77,7 @@ if errorlevel 1 (
         echo   No se pudo instalar Claude CLI.
         echo   Intentalo manualmente: npm install -g @anthropic-ai/claude-code
         echo.
-        pause
-        exit /b 1
+        goto :end
     )
     echo   Claude CLI instalado.
 ) else (
@@ -95,3 +100,8 @@ echo   Claude instalara el resto automaticamente.
 echo   Pulsa cualquier tecla para continuar...
 pause >nul
 claude
+
+:end
+echo.
+echo   Pulsa cualquier tecla para cerrar esta ventana.
+pause >nul
