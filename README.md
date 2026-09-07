@@ -15,14 +15,15 @@ Daemon de Windows que detecta automáticamente reuniones de Teams, graba el audi
 
 ## Requisitos previos
 
-Antes de instalar, necesitas tener estas cuatro cosas en tu equipo. Para comprobar si ya las tienes, abre PowerShell (búscalo en el menú Inicio) y ejecuta cada comando:
+Solo necesitas instalar **Git** manualmente. El resto (Python, Node.js, Claude CLI) lo instala el instalador automáticamente.
 
-| Herramienta | Cómo verificar | Si no la tienes |
-|---|---|---|
-| Python 3.11+ | `python --version` → debe decir 3.11 o superior | [python.org/downloads](https://www.python.org/downloads/) — marca "Add Python to PATH" al instalar |
-| Node.js 18+ | `node --version` → debe decir v18 o superior | [nodejs.org](https://nodejs.org) — descarga la versión LTS |
-| Git | `git --version` | [git-scm.com/download/win](https://git-scm.com/download/win) — opciones por defecto |
-| Claude CLI | `claude --version` | Ver paso 2 más abajo |
+**Git** — comprueba si ya lo tienes abriendo PowerShell (menú Inicio → escribe "PowerShell" → Enter) y ejecutando:
+
+```powershell
+git --version
+```
+
+Si ves un número de versión, ya lo tienes. Si no, descárgalo desde [git-scm.com/download/win](https://git-scm.com/download/win) e instálalo con las opciones por defecto.
 
 No necesitas ninguna API key. La app usa tu cuenta de claude.ai.
 
@@ -30,7 +31,7 @@ No necesitas ninguna API key. La app usa tu cuenta de claude.ai.
 
 ### Paso 1 — Descargar el proyecto
 
-Abre PowerShell (menú Inicio → escribe "PowerShell" → Enter) y pega este comando:
+Abre PowerShell y pega este comando:
 
 ```powershell
 git clone https://github.com/inescgamez99/teamsrecorder.git "$env:USERPROFILE\Documents\TeamsRecorder"
@@ -38,28 +39,17 @@ git clone https://github.com/inescgamez99/teamsrecorder.git "$env:USERPROFILE\Do
 
 Esto descarga la app en tu carpeta `Documentos\TeamsRecorder`. Verás unas líneas de texto mientras descarga — cuando vuelva a aparecer el cursor, ha terminado.
 
-### Paso 2 — Instalar Claude CLI (si no lo tienes)
-
-Si `claude --version` te dio error en los requisitos previos, ejecuta en PowerShell:
-
-```powershell
-npm install -g @anthropic-ai/claude-code
-claude login
-```
-
-`claude login` abre el navegador. Inicia sesión con tu cuenta de claude.ai y acepta el acceso. Cuando la página confirme que todo fue bien, puedes cerrarla.
-
-### Paso 3 — Ejecutar el instalador
+### Paso 2 — Ejecutar el instalador
 
 Abre el Explorador de archivos (el icono de carpeta en la barra de tareas), navega a `Documentos\TeamsRecorder` y haz doble clic en **`instalar.bat`**.
 
-Se abre una ventana negra que verifica los requisitos y después lanza Claude. Cuando veas que Claude está listo, escribe exactamente esto y pulsa Enter:
+Se abre una ventana negra que instala automáticamente Python, Node.js y Claude CLI si no los tienes. Cuando termine y veas que Claude está listo, escribe exactamente esto y pulsa Enter:
 
 ```
 /teamsrecorder
 ```
 
-Claude hace todo lo demás solo: instala las dependencias, configura el arranque automático con Windows y arranca la app por primera vez. El proceso tarda entre 5 y 15 minutos dependiendo de tu conexión.
+Claude hace todo lo demás solo: instala las dependencias de la app, configura el arranque automático con Windows y la arranca por primera vez. El proceso tarda entre 5 y 15 minutos dependiendo de tu conexión.
 
 Al terminar, verás un pequeño icono gris en la esquina inferior derecha de la pantalla (en la bandeja del sistema). Si no lo ves, haz clic en la flechita `^` de esa zona para ver los iconos ocultos.
 
