@@ -183,6 +183,7 @@ const T = {
     export_needs_folder: 'Selecciona una carpeta de proyecto (con "Editar") para poder guardar copias.',
     export_html: 'Notas en HTML',
     export_email: 'Notas en formato email',
+    export_pdf: 'Notas en PDF',
     export_transcript: 'Transcripción',
     whisper_tiny:   'tiny — Muy rápido, menor precisión',
     whisper_base:   'base — Rápido',
@@ -378,6 +379,7 @@ const T = {
     export_needs_folder: 'Select a project folder (via "Edit") to enable saving copies.',
     export_html: 'HTML notes',
     export_email: 'Email-format notes',
+    export_pdf: 'PDF notes',
     export_transcript: 'Transcript',
     whisper_tiny:   'tiny — Very fast, lower accuracy',
     whisper_base:   'base — Fast',
@@ -2892,6 +2894,10 @@ async function loadProjectsSettings(editingId = null) {
               <input type="checkbox" data-export-field="transcript" ${boxChecked('transcript')} ${canEditExport ? '' : 'disabled'}>
               <span data-i18n="export_transcript">${t('export_transcript')}</span>
             </label>
+            <label class="proj-export-check${canEditExport ? '' : ' disabled'}">
+              <input type="checkbox" data-export-field="pdf" ${boxChecked('pdf')} ${canEditExport ? '' : 'disabled'}>
+              <span data-i18n="export_pdf">${t('export_pdf')}</span>
+            </label>
           </div>
           ${!hasFolder ? `<div class="settings-card-desc" style="margin-top:6px;color:var(--muted)">${t('export_needs_folder')}</div>` : ''}
         </div>
@@ -2909,20 +2915,6 @@ async function loadProjectsSettings(editingId = null) {
               : `<div class="proj-context-dir-empty">${t('proj_context_empty')}</div>`}
           </div>
           ${isEditing ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="browseContextDir('${pid}')">${t('proj_context_add')}</button>` : ''}
-        </div>
-        <div style="margin-top:12px">
-          <div class="proj-field-label">${t('proj_pdf_label')}</div>
-          <div class="settings-card-desc" style="margin:3px 0 7px">${t('proj_pdf_desc')}</div>
-          <div class="proj-context-dirs" id="pdf-dir-${pid}">
-            ${p.pdf_output_dir
-              ? `<div class="proj-context-dir-row">
-                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.5"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
-                   <span class="proj-context-dir-path" title="${escHtml(p.pdf_output_dir)}">${escHtml(p.pdf_output_dir)}</span>
-                   ${isEditing ? `<button class="proj-context-dir-del" onclick="removePdfDir('${pid}')" title="Quitar">✕</button>` : ''}
-                 </div>`
-              : `<div class="proj-context-dir-empty">${t('proj_pdf_empty')}</div>`}
-          </div>
-          ${isEditing ? `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="browsePdfDir('${pid}')">${t('proj_pdf_browse')}</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -2958,6 +2950,7 @@ async function saveEditProject(pid) {
       if (get('html'))       proj.export_save_html       = get('html').checked;
       if (get('email'))      proj.export_save_email      = get('email').checked;
       if (get('transcript')) proj.export_save_transcript = get('transcript').checked;
+      if (get('pdf'))        proj.export_save_pdf        = get('pdf').checked;
     }
   }
 
@@ -3070,25 +3063,6 @@ async function removeContextDir(pid, idx) {
   await loadProjectsSettings(_editingProjectId);
 }
 
-async function browsePdfDir(pid) {
-  const path = await pywebview.api.browse_project_folder();
-  if (!path) return;
-  const projects = await pywebview.api.get_projects();
-  const proj = projects.find(p => p.id === pid);
-  if (!proj) return;
-  proj.pdf_output_dir = path;
-  await pywebview.api.save_project(proj);
-  await loadProjectsSettings(_editingProjectId);
-}
-
-async function removePdfDir(pid) {
-  const projects = await pywebview.api.get_projects();
-  const proj = projects.find(p => p.id === pid);
-  if (!proj) return;
-  proj.pdf_output_dir = null;
-  await pywebview.api.save_project(proj);
-  await loadProjectsSettings(_editingProjectId);
-}
 
 async function clearProjectFolder(pid) {
   const projects = await pywebview.api.get_projects();

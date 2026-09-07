@@ -75,6 +75,7 @@ def export_to_project_folder(minutes_path: Path, transcript_txt: str | None = No
     save_transcript = project.get('export_save_transcript', True)
     save_html       = project.get('export_save_html', True)
     save_email      = project.get('export_save_email', True)
+    save_pdf        = project.get('export_save_pdf', False)
 
     slug = minutes_path.stem
 
@@ -120,6 +121,29 @@ def export_to_project_folder(minutes_path: Path, transcript_txt: str | None = No
                 (email_dir / f"{slug}_email.html").write_text(email_html, encoding='utf-8')
         except Exception as e:
             log.warning(f"project_exporter: email HTML: {e}")
+
+    # 4 – PDF (generado desde el HTML via Edge headless)
+    if save_pdf:
+        pdf_dir = proj_dir / 'PDF'
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+        html_src = minutes_path.with_suffix('.html')
+        pdf_dst = pdf_dir / f"{slug}.pdf"
+        edge = next((p for p in [
+            r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+            r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+        ] if Path(p).exists()), None)
+        if edge and html_src.exists():
+            try:
+                import subprocess as _sp
+                _sp.run([edge, '--headless', '--disable-gpu', '--no-pdf-header-footer',
+                         f'--print-to-pdf={pdf_dst}', f'file:///{html_src}'],
+                        capture_output=True, timeout=60)
+                if not pdf_dst.exists():
+                    log.warning(f"project_exporter: PDF no generado para {slug}")
+            except Exception as e:
+                log.warning(f"project_exporter: PDF: {e}")
+        else:
+            log.warning(f"project_exporter: Edge no encontrado o HTML falta, PDF omitido")
 
     log.info(f"project_exporter: {slug} exportado a {proj_dir}")
     return True
