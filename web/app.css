@@ -1666,7 +1666,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
   background: rgba(161,0,255,0.06);
 }
 .task-filter-btn.active {
-  background: var(--f-color, rgba(161,0,255,0.12));
+  background: color-mix(in srgb, var(--f-color, var(--accent)) 15%, transparent);
   color: var(--f-color, var(--accent));
   font-weight: 600;
 }
