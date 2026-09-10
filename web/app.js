@@ -516,7 +516,14 @@ window.addEventListener('pywebviewready', async () => {
   setInterval(async () => {
     try {
       const p = await pywebview.api.get_navigate_request();
-      if (p) openMeeting(p);
+      if (p) {
+        // Red de seguridad: si la minuta no está en la lista, es nueva y hay
+        // que traerla antes de abrirla, o se mostraría sin figurar en el panel.
+        if (!allMeetings.some(m => _samePath(m.path, p))) {
+          try { await refreshMeetingList(); } catch (_) {}
+        }
+        openMeeting(p);
+      }
     } catch (_) {}
   }, 2000);
 });
@@ -3987,6 +3994,8 @@ function initResize() {
 
 let _pipelinePanelOpen = false;
 
+let _hadPipelineJobs = false;
+
 async function updatePipelineFooter() {
   const tab  = document.getElementById('pipeline-tab');
   const dot  = document.getElementById('pipeline-tab-dot');
@@ -3997,6 +4006,17 @@ async function updatePipelineFooter() {
   try { status = await pywebview.api.get_pipeline_status(); } catch (_) { return; }
 
   const jobs = status?.jobs ?? [];
+
+  // Cuando el pipeline termina hay una minuta nueva. La lista lateral solo se
+  // cargaba al abrir la app, así que la reunión recién procesada se abría en el
+  // detalle (vía get_navigate_request) pero no aparecía en el panel izquierdo
+  // hasta reiniciar.
+  if (jobs.length) {
+    _hadPipelineJobs = true;
+  } else if (_hadPipelineJobs) {
+    _hadPipelineJobs = false;
+    try { await refreshMeetingList(); } catch (_) {}
+  }
 
   if (!jobs.length) {
     tab.classList.add('idle');
