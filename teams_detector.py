@@ -258,6 +258,17 @@ class TeamsCallDetector:
                                             and self._no_audio_streak < self._required_end_silent)
                         else:
                             self._no_audio_streak = 0
+                            # 298b90a quito esta confirmacion con microfono, por
+                            # considerar que el formato exacto del titulo ya basta.
+                            # Se mantiene a proposito: una ventana que Teams deja
+                            # abierta al colgar cumple ese formato exacto
+                            # ("<Reunion> | <Persona> | Microsoft Teams") sin que haya
+                            # ninguna llamada, y sin confirmacion arranca una grabacion
+                            # de una reunion que no existe. Pasó de verdad: una call se
+                            # guardo con el nombre de una reunion de dos horas antes.
+                            # Tampoco sirve apoyarse en _stale_titles aqui: marcar un
+                            # titulo como residual exige observarlo 20 polls, y la
+                            # deteccion arranca en 2.
                             mic_active = _check_mic_session(pids) if teams2_match else False
                             title_active = classic_match or (teams2_match and mic_active)
 
