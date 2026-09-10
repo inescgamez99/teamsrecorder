@@ -4,19 +4,33 @@ $mainpy = Join-Path $dir "main.py"
 $lockf  = Join-Path $dir ".lock"
 $logf   = Join-Path $dir "teamsrecorder.log"
 
-# Resolver el interprete: .venv del repo primero, luego PATH, luego
-# instalaciones por usuario. Ver Get-TRPython en tr_env.ps1.
-. (Join-Path $dir "tr_env.ps1")
-$pyEnv = Get-TRPython -Root $dir
-
+# Log definido antes de cargar tr_env.ps1 para capturar cualquier fallo de arranque
 function Log($msg) {
     $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     Add-Content -Path $logf -Value "$ts WATCHDOG: $msg" -Encoding UTF8
 }
 
+Log "Watchdog iniciado (PID $PID)"
+
+try {
+    . (Join-Path $dir "tr_env.ps1")
+} catch {
+    Log "ERROR cargando tr_env.ps1: $_"
+    exit 1
+}
+
+$pyEnv = Get-TRPython -Root $dir
 if (-not $pyEnv) { Log "ERROR: no se encontro python"; exit 1 }
+
+# Salir si ya hay otro watchdog corriendo para esta instalacion
+$existing = @(Get-TRWatchdogProcess -Root $dir | Where-Object { $_.ProcessId -ne $PID })
+if ($existing.Count -gt 0) {
+    Log "Otro watchdog ya corre (PIDs: $($existing.ProcessId -join ', ')). Saliendo."
+    exit 0
+}
+
 $python = $pyEnv.Pythonw
-Log "Watchdog iniciado (python: $python, origen: $($pyEnv.Source))"
+Log "Python: $python (origen: $($pyEnv.Source))"
 
 while ($true) {
     # Limpiar lock huerfano

@@ -126,6 +126,12 @@ const T = {
     ctx_delete_meeting: 'Eliminar',
     confirm_delete_meeting_title: 'Eliminar reunión',
     confirm_delete_meeting: title => `¿Enviar la reunión "${title}" a la papelera? Podrás recuperarla desde la Papelera.`,
+    confirm_delete_task_title: 'Eliminar tarea',
+    confirm_delete_task: title => `¿Eliminar la tarea "${title}"? Esta acción no se puede deshacer.`,
+    confirm_delete_column_title: 'Eliminar columna',
+    confirm_delete_column: (name, count, target) => count
+      ? `¿Eliminar la columna "${name}"? Sus ${count} tarea(s) pasarán a "${target}".`
+      : `¿Eliminar la columna "${name}"?`,
     toast_meeting_deleted: 'Reunión eliminada',
     no_match_actions: 'No hay acciones en el panel. Mueve acciones desde "Gestionar acciones".',
     toast_claude: 'Abriendo Claude...', toast_terminal: 'Abriendo terminal...',
@@ -145,6 +151,10 @@ const T = {
     proj_name_ph: 'Nombre del proyecto', proj_desc_ph: 'Descripción corta', proj_stake_ph: 'emails separados por coma',
     save_btn: 'Guardar',
     recording_title: 'Grabación y Transcripción',
+    chat_notice_label: 'Mensaje de aviso en el chat de Teams',
+    chat_notice_enabled_label: 'Enviar aviso al iniciar la grabación',
+    chat_notice_desc: 'Personaliza el mensaje que se envía al chat de la reunión cuando empieza la grabación.',
+    chat_notice_ph: '🔴 This meeting is being recorded for documentation purposes...',
     whisper_desc: 'Modelo Whisper para transcribir el audio. Más grande = más preciso pero más lento. Se aplica al reiniciar.',
     open_folder_btn: 'Abrir',
     proj_dir_ph: 'Carpeta del proyecto (opcional)',
@@ -322,6 +332,12 @@ const T = {
     ctx_delete_meeting: 'Delete',
     confirm_delete_meeting_title: 'Delete meeting',
     confirm_delete_meeting: title => `Move the meeting "${title}" to Trash? You can recover it from the Trash.`,
+    confirm_delete_task_title: 'Delete task',
+    confirm_delete_task: title => `Delete task "${title}"? This action cannot be undone.`,
+    confirm_delete_column_title: 'Delete column',
+    confirm_delete_column: (name, count, target) => count
+      ? `Delete column "${name}"? Its ${count} task(s) will move to "${target}".`
+      : `Delete column "${name}"?`,
     toast_meeting_deleted: 'Meeting deleted',
     no_match_actions: 'No actions in the panel. Move actions from "Manage actions".',
     toast_claude: 'Opening Claude...', toast_terminal: 'Opening terminal...',
@@ -341,6 +357,10 @@ const T = {
     proj_name_ph: 'Project name', proj_desc_ph: 'Short description', proj_stake_ph: 'comma-separated emails',
     save_btn: 'Save',
     recording_title: 'Recording & Transcription',
+    chat_notice_label: 'Teams chat recording notice',
+    chat_notice_enabled_label: 'Send notice when recording starts',
+    chat_notice_desc: 'Customize the message sent to the meeting chat when recording starts.',
+    chat_notice_ph: '🔴 This meeting is being recorded for documentation purposes...',
     whisper_desc: 'Whisper model for audio transcription. Larger = more accurate but slower. Takes effect after restart.',
     open_folder_btn: 'Open',
     proj_dir_ph: 'Project folder (optional)',
@@ -1826,25 +1846,21 @@ function _bindTaskBoardEvents() {
   });
 
   body.querySelectorAll('[data-del-task]').forEach(btn => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => {
       const id = btn.dataset.delTask;
       const task = _taskData.tasks.find(t => t.id === id);
-      const msg = currentLang === 'en'
-        ? `Delete task "${task?.title || ''}"?`
-        : `¿Eliminar la tarea "${task?.title || ''}"?`;
-      if (!confirm(msg)) return;
-      await pywebview.api.delete_task(id);
-      _taskData.tasks = _taskData.tasks.filter(t => t.id !== id && t.parent_id !== id);
-      document.getElementById('taskwrap-' + id)?.remove();
-      if (task?.project_id) _refreshProjectCount(task.project_id);
-      refreshPendingBadge();
-      // Refrescar acciones de la reunión abierta para que el botón vuelva de
-      // "In panel" a "Move to panel". Usamos currentPath (no task.meeting_path)
-      // porque el meeting puede haber sido renombrado y el path del task puede
-      // estar desactualizado.
-      if (task?.meeting_path && currentPath) {
-        refreshMeetingActions(currentPath);
-      }
+      openConfirmModal(
+        t('confirm_delete_task', task?.title || ''),
+        async () => {
+          await pywebview.api.delete_task(id);
+          _taskData.tasks = _taskData.tasks.filter(t => t.id !== id && t.parent_id !== id);
+          document.getElementById('taskwrap-' + id)?.remove();
+          if (task?.project_id) _refreshProjectCount(task.project_id);
+          refreshPendingBadge();
+          if (task?.meeting_path && currentPath) refreshMeetingActions(currentPath);
+        },
+        { title: t('confirm_delete_task_title'), okLabel: t('btn_delete') }
+      );
     });
   });
 
@@ -2212,20 +2228,22 @@ async function _deleteBucket(bucketId) {
   if (_buckets.length <= 1) return;
   const bucket = _buckets.find(b => b.id === bucketId);
   const taskCount = _taskData.tasks.filter(t => t.bucket_id === bucketId).length;
-  const msg = currentLang === 'en'
-    ? `Delete column "${bucket?.name || ''}"?${taskCount ? ` Its ${taskCount} task(s) will move to the first column.` : ''}`
-    : `¿Eliminar la columna "${bucket?.name || ''}"?${taskCount ? ` Sus ${taskCount} tarea(s) pasarán a la primera columna.` : ''}`;
-  if (!confirm(msg)) return;
   const remaining = _buckets.filter(b => b.id !== bucketId);
-  const fallback = remaining[0]?.id || 'pendiente';
-  const affected = _taskData.tasks.filter(t => t.bucket_id === bucketId);
-  for (const tk of affected) {
-    tk.bucket_id = fallback;
-    await pywebview.api.update_task(tk.id, {bucket_id: fallback});
-  }
-  _buckets = remaining.map((b, i) => ({...b, order: i}));
-  await pywebview.api.save_buckets(_buckets);
-  renderKanbanBoard();
+  const fallbackName = remaining[0]?.name || '';
+  openConfirmModal(
+    t('confirm_delete_column', bucket?.name || '', taskCount, fallbackName),
+    async () => {
+      const fallback = remaining[0]?.id || 'pendiente';
+      for (const tk of _taskData.tasks.filter(t => t.bucket_id === bucketId)) {
+        tk.bucket_id = fallback;
+        await pywebview.api.update_task(tk.id, {bucket_id: fallback});
+      }
+      _buckets = remaining.map((b, i) => ({...b, order: i}));
+      await pywebview.api.save_buckets(_buckets);
+      renderKanbanBoard();
+    },
+    { title: t('confirm_delete_column_title'), okLabel: t('btn_delete') }
+  );
 }
 
 async function _saveBucketTitle(bucketId, newName) {
@@ -2411,31 +2429,30 @@ async function _addColumn() {
   renderKanbanBoard();
 }
 
-async function _deleteStatusColumn(id) {
+function _deleteStatusColumn(id) {
   const allCols = _getGroupByColumns([]);
   const col = allCols.find(c => c.id === id);
   const remaining = allCols.filter(c => c.id !== id);
-  if (!remaining.length) return; // no borrar si es la única columna
+  if (!remaining.length) return;
   const fallback = remaining[0].id;
   const taskCount = _taskData.tasks.filter(t => (t.status || 'not_started') === id).length;
-  const L = currentLang === 'en';
-  const msg = L
-    ? `Delete column "${col?.name || id}"?${taskCount ? ` ${taskCount} task(s) will move to "${_statusLabel(fallback)}".` : ''}`
-    : `¿Eliminar la columna "${col?.name || id}"?${taskCount ? ` ${taskCount} tarea(s) pasarán a "${_statusLabel(fallback)}".` : ''}`;
-  if (!confirm(msg)) return;
-  for (const tk of _taskData.tasks.filter(t => (t.status || 'not_started') === id)) {
-    tk.status = fallback;
-    await pywebview.api.update_task(tk.id, {status: fallback});
-  }
-  // Remove from order list
-  if (_statusColumnOrder.length) _statusColumnOrder = _statusColumnOrder.filter(sid => sid !== id);
-  await pywebview.api.save_status_column_order(_statusColumnOrder);
-  // If custom status, remove from custom list too
-  if (_customStatuses.some(s => s.id === id)) {
-    _customStatuses = _customStatuses.filter(s => s.id !== id);
-    await pywebview.api.save_custom_statuses(_customStatuses);
-  }
-  renderKanbanBoard();
+  openConfirmModal(
+    t('confirm_delete_column', col?.name || id, taskCount, _statusLabel(fallback)),
+    async () => {
+      for (const tk of _taskData.tasks.filter(t => (t.status || 'not_started') === id)) {
+        tk.status = fallback;
+        await pywebview.api.update_task(tk.id, {status: fallback});
+      }
+      if (_statusColumnOrder.length) _statusColumnOrder = _statusColumnOrder.filter(sid => sid !== id);
+      await pywebview.api.save_status_column_order(_statusColumnOrder);
+      if (_customStatuses.some(s => s.id === id)) {
+        _customStatuses = _customStatuses.filter(s => s.id !== id);
+        await pywebview.api.save_custom_statuses(_customStatuses);
+      }
+      renderKanbanBoard();
+    },
+    { title: t('confirm_delete_column_title'), okLabel: t('btn_delete') }
+  );
 }
 
 // ── Task detail drawer ────────────────────────────────────────────────────────
@@ -2723,9 +2740,32 @@ async function loadRecordingSettings() {
   try {
     const s = await pywebview.api.get_settings();
     renderWhisperOptions(s.whisper_model || 'medium');
+    const enabled = s.teams_chat_notice_enabled === true;
+    const cb = document.getElementById('chat-notice-enabled');
+    const ta = document.getElementById('chat-notice-input');
+    if (cb) cb.checked = enabled;
+    if (ta) {
+      ta.value = s.teams_chat_message ?? '';
+      ta.disabled = !enabled;
+    }
   } catch (e) {
     renderWhisperOptions('medium');
   }
+}
+
+function saveChatNoticeEnabled(enabled) {
+  const ta = document.getElementById('chat-notice-input');
+  if (ta) ta.disabled = !enabled;
+}
+
+async function saveChatNoticeSettings() {
+  const cb = document.getElementById('chat-notice-enabled');
+  const ta = document.getElementById('chat-notice-input');
+  await pywebview.api.save_settings({
+    teams_chat_notice_enabled: cb?.checked ?? false,
+    teams_chat_message: ta?.value ?? '',
+  });
+  showToast(t('settings_saved'));
 }
 
 async function saveWhisperModel(model) {
@@ -2767,6 +2807,8 @@ async function openProjectDir(dir) {
 // ── Project settings management ───────────────────────────────────────────────
 
 let _newProjectFolder = '';
+let _newProjectContextDirs = [];
+let _newProjectColor = '';
 let _editingProjectId = null;         // proyecto actualmente en modo edición (o null)
 const _expandedProjects = new Set();  // ids de proyectos con el detalle desplegado
 
@@ -2959,6 +3001,16 @@ async function saveEditProject(pid) {
 }
 
 function showAddProjectForm() {
+  _newProjectContextDirs = [];
+  _newProjectColor = PROJECT_COLORS[0];
+  // Render color swatches
+  const picker = document.getElementById('add-proj-color-picker');
+  const trigger = document.getElementById('add-proj-color-trigger');
+  if (picker) picker.innerHTML = PROJECT_COLORS.map(c =>
+    `<button class="proj-color-swatch${c === _newProjectColor ? ' selected' : ''}" data-color="${c}" style="background:${c}" onclick="selectNewProjectColor(this,'${c}')" type="button" title="${c}"></button>`
+  ).join('');
+  if (trigger) { trigger.style.background = _newProjectColor; }
+  _renderNewContextDirs();
   document.getElementById('add-project-form').style.display = 'block';
   document.getElementById('proj-name').focus();
 }
@@ -2969,8 +3021,14 @@ function hideAddProjectForm() {
   document.getElementById('proj-desc').value = '';
   document.getElementById('proj-stakeholders').value = '';
   _newProjectFolder = '';
+  _newProjectContextDirs = [];
+  _newProjectColor = '';
   const display = document.getElementById('add-proj-folder-display');
   if (display) { display.textContent = t('proj_folder_default'); display.classList.add('empty'); }
+  const ctxList = document.getElementById('add-proj-context-dirs');
+  if (ctxList) ctxList.innerHTML = '';
+  const picker = document.getElementById('add-proj-color-picker');
+  if (picker) { picker.innerHTML = ''; picker.style.display = 'none'; }
 }
 
 async function saveNewProject() {
@@ -2979,7 +3037,12 @@ async function saveNewProject() {
   const description = document.getElementById('proj-desc').value.trim();
   const stakeholders = document.getElementById('proj-stakeholders').value
     .split(',').map(s => s.trim()).filter(Boolean);
-  await pywebview.api.save_project({ name, description, stakeholders, output_dir: _newProjectFolder });
+  await pywebview.api.save_project({
+    name, description, stakeholders,
+    output_dir: _newProjectFolder,
+    color: _newProjectColor || PROJECT_COLORS[0],
+    context_dirs: [..._newProjectContextDirs],
+  });
   hideAddProjectForm();
   await loadProjectsSettings();
 }
@@ -3079,6 +3142,46 @@ async function browseNewProjectFolder() {
   _newProjectFolder = path;
   const display = document.getElementById('add-proj-folder-display');
   if (display) { display.textContent = path; display.classList.remove('empty'); }
+}
+
+async function browseNewContextDir() {
+  const path = await pywebview.api.browse_project_folder();
+  if (!path || _newProjectContextDirs.includes(path)) return;
+  _newProjectContextDirs.push(path);
+  _renderNewContextDirs();
+}
+
+function removeNewContextDir(idx) {
+  _newProjectContextDirs.splice(idx, 1);
+  _renderNewContextDirs();
+}
+
+function _renderNewContextDirs() {
+  const el = document.getElementById('add-proj-context-dirs');
+  if (!el) return;
+  if (!_newProjectContextDirs.length) {
+    el.innerHTML = `<div class="proj-context-dir-empty">${t('proj_context_empty')}</div>`;
+    return;
+  }
+  el.innerHTML = _newProjectContextDirs.map((d, i) => `
+    <div class="proj-context-dir-row">
+      <span class="proj-context-dir-path" title="${escHtml(d)}">${escHtml(d)}</span>
+      <button class="proj-context-dir-del" onclick="removeNewContextDir(${i})" type="button" title="Quitar">✕</button>
+    </div>`).join('');
+}
+
+function selectNewProjectColor(swatch, color) {
+  _newProjectColor = color;
+  document.querySelectorAll('#add-proj-color-picker .proj-color-swatch').forEach(s => s.classList.remove('selected'));
+  swatch.classList.add('selected');
+  const trigger = document.getElementById('add-proj-color-trigger');
+  if (trigger) trigger.style.background = color;
+  document.getElementById('add-proj-color-picker').style.display = 'none';
+}
+
+function toggleNewProjectColorPicker() {
+  const picker = document.getElementById('add-proj-color-picker');
+  if (picker) picker.style.display = picker.style.display === 'none' ? 'flex' : 'none';
 }
 
 // ── Parseo de fechas de deadline ──────────────────────────────────────────────
@@ -3941,10 +4044,18 @@ async function updatePipelineFooter() {
       progHtml = `<div class="pipeline-job-progress shimmer-wrap"><div class="pipeline-job-progress-fill shimmer"></div></div>`;
     }
 
-    // Elapsed for recording
-    const elapsedHtml = (j.stage === 'recording' && j.elapsed != null)
-      ? `<span class="pipeline-job-elapsed">${Math.floor(j.elapsed/60).toString().padStart(2,'0')}:${(j.elapsed%60).toString().padStart(2,'0')}</span>`
-      : (pct != null ? `<span class="pipeline-job-pct">${pct}%</span>` : '');
+    // Elapsed for recording; pct% for transcription; MM:SS for minutes/actions (step_started)
+    let elapsedHtml;
+    if (j.stage === 'recording' && j.elapsed != null) {
+      elapsedHtml = `<span class="pipeline-job-elapsed">${Math.floor(j.elapsed/60).toString().padStart(2,'0')}:${(j.elapsed%60).toString().padStart(2,'0')}</span>`;
+    } else if (pct != null) {
+      elapsedHtml = `<span class="pipeline-job-pct">${pct}%</span>`;
+    } else if (j.step_started) {
+      const _e = Math.max(0, Math.floor(Date.now() / 1000 - j.step_started));
+      elapsedHtml = `<span class="pipeline-job-pct">${Math.floor(_e/60).toString().padStart(2,'0')}:${(_e%60).toString().padStart(2,'0')}</span>`;
+    } else {
+      elapsedHtml = '';
+    }
 
     return `
       <div class="pipeline-job-card ${dotClass}">

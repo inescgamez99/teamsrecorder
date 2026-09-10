@@ -500,7 +500,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
   background: var(--accent); flex-shrink: 0;
 }
 .settings-group-header:first-child { padding-top: 0; }
-.settings-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; margin-bottom: 8px; }
+.settings-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: stretch; margin-bottom: 8px; }
 .settings-group--full { grid-template-columns: 1fr; }
 .settings-card {
   background: var(--surface); border: 1px solid var(--border);

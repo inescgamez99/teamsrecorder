@@ -199,7 +199,7 @@
           </div>
         </div>
 
-        <!-- Grabación -->
+        <!-- Modelo de transcripción -->
         <div class="settings-card">
           <div class="settings-card-title" data-i18n="recording_title">Grabación y Transcripción</div>
           <div class="settings-card-desc" data-i18n="whisper_desc">Modelo Whisper para transcribir el audio. Más grande = más preciso pero más lento. Se aplica al reiniciar.</div>
@@ -210,6 +210,21 @@
             <option value="medium" selected>medium</option>
             <option value="large-v3">large-v3</option>
           </select>
+        </div>
+
+        <!-- Aviso en el chat de Teams -->
+        <div class="settings-card">
+          <div class="settings-card-title" data-i18n="chat_notice_label">Aviso en el chat de Teams</div>
+          <div class="settings-card-desc" data-i18n="chat_notice_desc">Se envía automáticamente al chat de la reunión cuando empieza la grabación.</div>
+          <label class="proj-export-check" style="margin-bottom:14px">
+            <input type="checkbox" id="chat-notice-enabled" onchange="saveChatNoticeEnabled(this.checked)">
+            <span data-i18n="chat_notice_enabled_label">Enviar aviso al iniciar la grabación</span>
+          </label>
+          <textarea id="chat-notice-input" class="settings-text-input settings-textarea" rows="3"
+            data-i18n="chat_notice_ph" disabled></textarea>
+          <div style="display:flex;justify-content:flex-end;margin-top:10px">
+            <button class="btn btn-primary btn-sm" onclick="saveChatNoticeSettings()" data-i18n="save_btn">Guardar</button>
+          </div>
         </div>
 
       </div>
@@ -261,6 +276,19 @@
                   <span class="proj-folder-path empty" id="add-proj-folder-display" data-i18n="proj_folder_default">Carpeta de TeamsRecorder (por defecto)</span>
                   <button class="btn btn-ghost btn-sm" onclick="browseNewProjectFolder()" type="button" data-i18n="proj_folder_browse">Seleccionar carpeta</button>
                 </div>
+              </div>
+              <div style="grid-column:1/-1">
+                <div class="proj-field-label" data-i18n="proj_color_label">Color del proyecto</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">
+                  <button class="proj-color-swatch" id="add-proj-color-trigger" onclick="toggleNewProjectColorPicker()" type="button"></button>
+                  <div class="proj-color-picker" id="add-proj-color-picker" style="display:none"></div>
+                </div>
+              </div>
+              <div style="grid-column:1/-1">
+                <div class="proj-field-label" data-i18n="proj_context_label">Memoria del proyecto</div>
+                <div class="settings-card-desc" style="margin:3px 0 6px" data-i18n="proj_context_desc">Carpetas de documentos que Claude usará como contexto al generar minutas (READMEs, PRDs, specs técnicas…).</div>
+                <div class="proj-context-dirs" id="add-proj-context-dirs"></div>
+                <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="browseNewContextDir()" type="button" data-i18n="proj_context_add">+ Añadir carpeta</button>
               </div>
             </div>
           </div>

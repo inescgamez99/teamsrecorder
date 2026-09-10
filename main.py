@@ -118,6 +118,13 @@ def main():
                     recorder.start(path)
                     tray.set_recording(True, path)
                     log.info(f"{'Continuando (reconexión)' if continuing else 'Grabación iniciada'}: {path.name}")
+                    def _send_notice():
+                        try:
+                            import teams_chat as _tc
+                            _tc.send_recording_notice()
+                        except Exception as _e:
+                            log.warning(f"TeamsChatNotice: {_e}")
+                    threading.Thread(target=_send_notice, daemon=True, name='TeamsChatNotice').start()
 
                 if is_reconnect:
                     def on_yes():

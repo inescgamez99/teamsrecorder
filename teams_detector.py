@@ -214,11 +214,9 @@ class TeamsCallDetector:
                         # falsos positivos de tabs de apps (Planner, Amethyst…).
                         # Para MANTENER una llamada ya detectada: no exigimos mic (pycaw puede
                         # perderlo momentáneamente con WebRTC) para evitar cortes falsos.
-                        if self._in_call:
-                            title_active = classic_match or teams2_match
-                        else:
-                            mic_active = _check_mic_session(pids) if teams2_match else False
-                            title_active = classic_match or (teams2_match and mic_active)
+                        # teams2_match ya exige formato exacto (name | Org | email | Microsoft Teams)
+                        # con nombre fuera de la lista genérica — fiable sin confirmar con mic
+                        title_active = classic_match or teams2_match
 
                     # Para INICIAR: título O audio. Audio solo cubre llamadas 1:1 en
                     # Teams 2.0 donde el título siempre es genérico. Para evitar falsos

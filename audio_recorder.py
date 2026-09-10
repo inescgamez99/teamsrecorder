@@ -27,6 +27,7 @@ class AudioRecorder:
         self._recording = False
         self._output_path: Path | None = None
         self._save_event = threading.Event()
+        self._save_event.set()  # initially no save in progress
         self._loopback_proc: subprocess.Popen | None = None
         self._stream: sd.InputStream | None = None
         self._stereo_stream: sd.InputStream | None = None
@@ -63,10 +64,10 @@ class AudioRecorder:
         )
         self._stream.start()
 
-        if not self._start_wasapi_loopback():
-            self._start_stereo_mix_loopback()
-
         self._recording = True
+
+        # Start loopback in background so start() returns immediately
+        threading.Thread(target=self._start_loopback_async, daemon=True, name='LoopbackInit').start()
 
         if self.on_chunk:
             t = threading.Thread(target=self._emit_chunks, daemon=True, name='ChunkEmitter')
@@ -152,6 +153,10 @@ class AudioRecorder:
     def _mic_cb(self, indata, frames, time_info, status):
         with self._mic_lock:
             self._mic_chunks.append(indata.copy().flatten())
+
+    def _start_loopback_async(self):
+        if not self._start_wasapi_loopback():
+            self._start_stereo_mix_loopback()
 
     def _start_wasapi_loopback(self) -> bool:
         try:

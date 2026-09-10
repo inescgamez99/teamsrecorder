@@ -63,6 +63,8 @@ def _find_claude_bin() -> str | None:
 
 CLAUDE_BIN: str | None = _find_claude_bin()
 
+TEAMS_CHAT_MESSAGE = _settings.get('teams_chat_message', '')
+
 TEAMS_POLL_INTERVAL          = 3.0
 TEAMS_REQUIRED_CONFIRMATIONS = 2
 
