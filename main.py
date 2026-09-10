@@ -80,6 +80,8 @@ def main():
         detector  = TeamsCallDetector()
         tray      = TrayApp(recorder, detector)
 
+        recorder.on_loopback_unavailable = tray.warn_loopback_unavailable
+
         _popup_active      = [False]   # guard para evitar popups múltiples
         _active_generation = [None]    # generación capturada en el último on_call_started
         _popup_lock        = threading.Lock()  # hace atómico el check-and-set de _popup_active
