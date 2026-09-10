@@ -134,6 +134,12 @@ class TeamsCallDetector:
         self._required          = required_confirmations              # polls para detectar inicio (2 = 6s)
         self._required_end      = max(required_confirmations * 5, 10)  # polls fin conservador (10 = 30s)
         self._required_end_fast = 5   # polls fin rápido cuando título es genérico (5 = 15s)
+        # Polls con título de llamada pero sin audio NI micrófono antes de dejar
+        # de creer al título (15 = 45s). Teams deja abiertas ventanas de
+        # reuniones ya terminadas con el mismo formato de título, y sin este
+        # límite una de ellas mantenía la grabación en marcha indefinidamente.
+        self._required_end_silent = 15
+        self._no_audio_streak = 0
         self._required_name_chg = max(required_confirmations * 5, 10)  # polls cambio de reunión (10 = 30s)
         self._in_call = False
         self._call_streak = 0
@@ -185,6 +191,7 @@ class TeamsCallDetector:
         self._call_streak = 0
         self._call_streak_has_title = False
         self._no_call_streak = 0
+        self._no_audio_streak = 0
         self._title_went_generic = False
         self._name_change_candidate = None
         self._name_change_streak = 0
@@ -214,9 +221,28 @@ class TeamsCallDetector:
                         # falsos positivos de tabs de apps (Planner, Amethyst…).
                         # Para MANTENER una llamada ya detectada: no exigimos mic (pycaw puede
                         # perderlo momentáneamente con WebRTC) para evitar cortes falsos.
-                        # teams2_match ya exige formato exacto (name | Org | email | Microsoft Teams)
-                        # con nombre fuera de la lista genérica — fiable sin confirmar con mic
-                        title_active = classic_match or teams2_match
+                        if self._in_call:
+                            # El título mantiene la llamada viva, pero no para
+                            # siempre: si no hay ni reproducción ni captura
+                            # durante _required_end_silent polls, el título es de
+                            # una ventana de reunión ya terminada y se ignora.
+                            mic_active = _check_mic_session(pids)
+                            if audio_active or mic_active:
+                                self._no_audio_streak = 0
+                            else:
+                                self._no_audio_streak += 1
+                                if self._no_audio_streak == self._required_end_silent:
+                                    log.info(
+                                        "Título de llamada sin audio ni micrófono durante "
+                                        f"{int(self._required_end_silent * self._poll)}s: se ignora "
+                                        "(ventana de una reunión ya terminada)"
+                                    )
+                            title_active = ((classic_match or teams2_match)
+                                            and self._no_audio_streak < self._required_end_silent)
+                        else:
+                            self._no_audio_streak = 0
+                            mic_active = _check_mic_session(pids) if teams2_match else False
+                            title_active = classic_match or (teams2_match and mic_active)
 
                     # Para INICIAR: título O audio. Audio solo cubre llamadas 1:1 en
                     # Teams 2.0 donde el título siempre es genérico. Para evitar falsos
@@ -300,6 +326,7 @@ class TeamsCallDetector:
                         self._in_call = False
                         self._call_declined = False
                         self._title_went_generic = False
+                        self._no_audio_streak = 0
                         self._current_meeting_name = None
                         self._name_change_candidate = None
                         self._name_change_streak = 0
