@@ -34,11 +34,15 @@ def _teams_pids() -> list[int]:
         return []
 
 
-def _check_window_titles(pids: list[int]) -> tuple[bool, bool, str | None]:
-    """Returns (classic_match, teams2_match, meeting_name).
+def _check_window_titles(pids: list[int]) -> tuple[bool, bool, str | None, list[str]]:
+    """Returns (classic_match, teams2_match, meeting_name, candidates).
     classic_match: keyword found ('in a call', etc.) — reliable alone.
     teams2_match: pipe-format title found — requires audio to avoid false
-                  positives from Teams app tabs (Planner, Amethyst, etc.)."""
+                  positives from Teams app tabs (Planner, Amethyst, etc.).
+    candidates: todos los nombres con formato de reunión, en orden Z. El caller
+                los necesita para descartar ventanas de reuniones ya terminadas
+                que Teams deja abiertas y que dan nombre a la grabación
+                equivocada."""
     try:
         import win32gui
         import win32process
@@ -46,6 +50,7 @@ def _check_window_titles(pids: list[int]) -> tuple[bool, bool, str | None]:
         meeting_name = None
         classic_match = False
         teams2_match = False
+        candidates: list[str] = []
 
         def cb(hwnd, _):
             nonlocal classic_match, teams2_match, meeting_name
@@ -65,6 +70,8 @@ def _check_window_titles(pids: list[int]) -> tuple[bool, bool, str | None]:
                         candidate = raw.split('|')[0].strip()
                         if candidate.lower() not in _TEAMS_GENERIC_PAGES:
                             meeting_name = candidate
+                            if candidate not in candidates:
+                                candidates.append(candidate)
                     return
 
                 # Teams 2.0: "<Meeting> | <Org> [| email] | Microsoft Teams"
@@ -75,15 +82,17 @@ def _check_window_titles(pids: list[int]) -> tuple[bool, bool, str | None]:
                     first = parts[0].strip()
                     if first.lower() not in _TEAMS_GENERIC_PAGES:
                         teams2_match = True
+                        if first not in candidates:
+                            candidates.append(first)
                         if meeting_name is None:
                             meeting_name = first
             except Exception:
                 pass
 
         win32gui.EnumWindows(cb, None)
-        return classic_match, teams2_match, meeting_name
+        return classic_match, teams2_match, meeting_name, candidates
     except Exception:
-        return False, False, None
+        return False, False, None, []
 
 
 def _check_audio_session(pids: list[int]) -> bool:
@@ -124,7 +133,7 @@ def get_current_meeting_name() -> str | None:
     pids = _teams_pids()
     if not pids:
         return None
-    _, _, name = _check_window_titles(pids)
+    _, _, name, _ = _check_window_titles(pids)
     return name
 
 
@@ -140,6 +149,13 @@ class TeamsCallDetector:
         # límite una de ellas mantenía la grabación en marcha indefinidamente.
         self._required_end_silent = 15
         self._no_audio_streak = 0
+        # Un título de reunión visto tantos polls seguidos SIN llamada es una
+        # ventana que Teams dejó abierta de una reunión ya terminada (20 = 60s).
+        # No debe dar nombre a la siguiente grabación. El margen deja fuera el
+        # caso normal de abrir la reunión y unirse acto seguido.
+        self._stale_title_polls = 20
+        self._idle_title_counts: dict[str, int] = {}
+        self._stale_titles: set[str] = set()
         self._required_name_chg = max(required_confirmations * 5, 10)  # polls cambio de reunión (10 = 30s)
         self._in_call = False
         self._call_streak = 0
@@ -216,7 +232,8 @@ class TeamsCallDetector:
                     title_active = False
                     if pids:
                         audio_active = _check_audio_session(pids)
-                        classic_match, teams2_match, detected_name = _check_window_titles(pids)
+                        (classic_match, teams2_match, detected_name,
+                         title_candidates) = _check_window_titles(pids)
                         # Para INICIAR detección: teams2_match requiere mic activo para evitar
                         # falsos positivos de tabs de apps (Planner, Amethyst…).
                         # Para MANTENER una llamada ya detectada: no exigimos mic (pycaw puede
@@ -250,6 +267,35 @@ class TeamsCallDetector:
                     # audio sin título, vs 2 polls cuando hay título confirmado.
                     # Para MANTENER: audio O título es suficiente.
                     active = title_active or audio_active
+
+                    # Un título de reunión que sigue ahí sin ninguna señal de
+                    # llamada es una ventana que Teams no cerró al colgar. Se
+                    # cuentan los polls que lleva así; pasado el umbral deja de
+                    # servir para nombrar grabaciones. Los contadores solo se
+                    # tocan fuera de llamada, así que durante una reunión la
+                    # lista de residuales queda congelada.
+                    if not active and not self._in_call:
+                        seen = set(title_candidates)
+                        for known in list(self._idle_title_counts):
+                            if known not in seen:
+                                del self._idle_title_counts[known]
+                        for name in seen:
+                            self._idle_title_counts[name] = self._idle_title_counts.get(name, 0) + 1
+                    self._stale_titles = {
+                        name for name, n in self._idle_title_counts.items()
+                        if n >= self._stale_title_polls
+                    }
+
+                    # Mejor sin nombre que con el de otra reunión: el fichero de
+                    # audio acababa llamándose como una reunión de horas antes.
+                    if detected_name and detected_name in self._stale_titles:
+                        fresh = [c for c in title_candidates if c not in self._stale_titles]
+                        if fresh:
+                            detected_name = fresh[0]
+                        else:
+                            log.info(f"Ignorando título residual '{detected_name}' "
+                                     "(ventana de una reunión ya terminada)")
+                            detected_name = None
 
                     # Detectar cuándo el título vuelve a ser genérico (señal fuerte de fin)
                     if self._in_call and not title_active:
