@@ -277,7 +277,15 @@ class TeamsCallDetector:
                     # positivos por notificaciones (< 18s) se exige 6 polls cuando es
                     # audio sin título, vs 2 polls cuando hay título confirmado.
                     # Para MANTENER: audio O título es suficiente.
-                    active = title_active or audio_active
+                    #
+                    # Cuando hay título en formato pipe (teams2_match), NO dejamos
+                    # que audio solo arranque la detección: carpetas y canales de Teams
+                    # cumplen el formato pipe Y pueden tener audio activo (notificaciones,
+                    # vídeos en el canal). Solo el audio SIN título pipe cubre 1:1 calls.
+                    if not self._in_call:
+                        active = title_active or (audio_active and not teams2_match)
+                    else:
+                        active = title_active or audio_active
 
                     # Un título de reunión que sigue ahí sin ninguna señal de
                     # llamada es una ventana que Teams no cerró al colgar. Se
