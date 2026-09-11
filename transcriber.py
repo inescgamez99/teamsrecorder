@@ -13,7 +13,7 @@ _model_name: str | None = None
 _model_lock = threading.Lock()
 
 _LANG_REMAP = {
-    'gl': 'es', 'ca': 'es', 'eu': 'es',
+    'gl': 'es', 'eu': 'es',
     'pt': 'es', 'it': 'es', 'fr': 'es', 'la': 'es',
     'cy': 'en', 'ga': 'en', 'gd': 'en',
 }

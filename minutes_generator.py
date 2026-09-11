@@ -92,6 +92,7 @@ _LANG_INSTRUCTIONS = {
     ),
     'en': "Write always in English, even if some parts of the meeting were in another language.",
     'es': "Escribe siempre en español, aunque alguna parte de la reunion sea en otro idioma.",
+    'ca': "Escriu sempre en català, encara que alguna part de la reunió sigui en un altre idioma.",
 }
 _LANG_SECTIONS = {
     'en': [
@@ -111,6 +112,15 @@ _LANG_SECTIONS = {
         "Acciones Pendientes (primero: tabla con TODAS las acciones — columnas: Acción | Responsable | Fecha límite; marca las ejecutables por Claude con '(Claude)' junto al responsable. Después: un bloque técnico por cada acción Claude, en los formatos descritos arriba)",
         "Preguntas Abiertas y Riesgos (preguntas sin resolver que se plantearon, decisiones aún pendientes, y riesgos o bloqueos mencionados. Usa una lista con viñetas. Si no hay, escribe 'Ninguno')",
         "Notas Adicionales",
+    ],
+    'ca': [
+        "Resum Executiu",
+        "Assistents",
+        "Temes Tractats",
+        "Decisions Preses",
+        "Accions Pendents (primer: taula amb TOTES les accions — columnes: Acció | Responsable | Data límit; marca les executables per Claude amb '(Claude)' al costat del responsable. Després: un bloc tècnic per cada acció Claude, en els formats descrits anteriorment)",
+        "Preguntes Obertes i Riscos (preguntes sense resoldre que es van plantejar, decisions encara pendents, i riscos o bloquejos esmentats. Utilitza una llista amb vinyetes. Si no n'hi ha, escriu 'Cap')",
+        "Notes Addicionals",
     ],
 }
 
@@ -133,16 +143,26 @@ def _build_prompt(transcript: str, recording_path: Path, extra_context: str | No
 
     lang = language if language in _LANG_SECTIONS else 'en'
     sections = _LANG_SECTIONS[lang]
-    section_label = "Required minutes structure" if lang == 'en' else "Estructura requerida de las minutas"
-    date_label    = f"Date: {fecha}  Start time: {hora}  Estimated duration: {duracion}" if lang == 'en' \
-                    else f"Fecha: {fecha}  Hora de inicio: {hora}  Duración estimada: {duracion}"
-    ctx_label     = "## Additional context from user:" if lang == 'en' else "## Contexto adicional del usuario:"
+    if lang == 'en':
+        section_label = "Required minutes structure"
+        date_label = f"Date: {fecha}  Start time: {hora}  Estimated duration: {duracion}"
+        ctx_label = "## Additional context from user:"
+    elif lang == 'ca':
+        section_label = "Estructura requerida de les actes"
+        date_label = f"Data: {fecha}  Hora d'inici: {hora}  Durada estimada: {duracion}"
+        ctx_label = "## Context addicional de l'usuari:"
+    else:
+        section_label = "Estructura requerida de las minutas"
+        date_label = f"Fecha: {fecha}  Hora de inicio: {hora}  Duración estimada: {duracion}"
+        ctx_label = "## Contexto adicional del usuario:"
 
-    header_block = (
-        f"**Date:** {fecha} | **Start:** {hora} | **Est. duration:** {duracion}"
-        if lang == 'en' else
-        f"**Fecha:** {fecha} | **Inicio:** {hora} | **Duración estimada:** {duracion}"
-    )
+    if lang == 'en':
+        header_block = f"**Date:** {fecha} | **Start:** {hora} | **Est. duration:** {duracion}"
+    elif lang == 'ca':
+        header_block = f"**Data:** {fecha} | **Inici:** {hora} | **Durada estimada:** {duracion}"
+    else:
+        header_block = f"**Fecha:** {fecha} | **Inicio:** {hora} | **Duración estimada:** {duracion}"
+
     header_instruction = (
         "After the TITULO line (and a blank line), the FIRST line of the minutes body must be exactly:"
         if lang == 'en' else
