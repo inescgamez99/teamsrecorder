@@ -550,6 +550,13 @@ async function refreshMeetingList() {
   }
 }
 
+async function refreshMeetings() {
+  const btn = document.getElementById('btn-refresh-meetings');
+  if (btn) btn.classList.add('spinning');
+  await refreshMeetingList();
+  if (btn) btn.classList.remove('spinning');
+}
+
 function _samePath(a, b) {
   return a && b && a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
 }

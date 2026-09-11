@@ -103,6 +103,14 @@ html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', s
   color: var(--text); width: 100%;
 }
 .search-box input::placeholder { color: var(--muted); }
+.btn-refresh-meetings {
+  flex-shrink: 0; background: var(--surface2); border: 1px solid var(--border);
+  cursor: pointer; padding: 0; width: 28px; height: 28px; border-radius: var(--radius);
+  color: var(--muted); display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+.btn-refresh-meetings:hover { color: var(--text); background: var(--border); }
+.btn-refresh-meetings.spinning svg { animation: spin 0.7s linear infinite; }
 .btn-import-transcript {
   flex-shrink: 0; background: var(--surface2); border: 1px solid var(--border);
   cursor: pointer; padding: 0; width: 28px; height: 28px; border-radius: var(--radius);
