@@ -21,6 +21,7 @@ _STR = {
         ready='Minutas y acciones listas',
         transcription_failed='No se pudo transcribir la grabación. Revisa el log para más detalles.',
         minutes_failed='No se pudieron generar las minutas. Revisa el log para más detalles.',
+        mic_only='Grabando SOLO tu microfono: no se captura el audio de los demas. Si usas auriculares, sus voces no quedaran en la grabacion.',
     ),
     'en': dict(
         record_now='Record now', stop='Stop recording',
@@ -34,6 +35,7 @@ _STR = {
         ready='Meeting minutes & action items ready',
         transcription_failed='Transcription failed. Check the log for details.',
         minutes_failed='Minutes generation failed. Check the log for details.',
+        mic_only='Recording your microphone ONLY — system audio is not being captured. If you are on a headset, the others will not be in the recording.',
     ),
 }
 
@@ -683,6 +685,13 @@ class TrayApp:
             open_app()
         except Exception as e:
             log.error(f"Error abriendo app: {e}")
+
+    def warn_loopback_unavailable(self, reason: str = ''):
+        """La grabación va a salir sin las voces de los demás: avisar en el momento,
+        no cuando el usuario descubra el transcript incompleto días después."""
+        log.error(f"Grabando sin audio del sistema: {reason}")
+        s = _STR.get(get_ui_language(), _STR['en'])
+        self._notify('TeamsRecorder', s['mic_only'])
 
     def _notify(self, title: str, msg: str):
         try:

@@ -128,12 +128,35 @@ class AppAPI:
         self._pins_path().write_text(json.dumps(sorted(pins)), encoding='utf-8')
         return state
 
+    @staticmethod
+    def _title_from_content(md: Path) -> str:
+        """Título declarado dentro del .md, si lo hay.
+
+        El panel mostraba el título deducido del nombre del fichero, pero
+        rename_meeting() solo reescribe la línea TITULO: y no renombra el
+        fichero (arrastraría el .html, el _actions.json y el _transcript.txt).
+        Con lo cual una reunión renombrada seguía apareciendo con su nombre
+        viejo y el usuario no la encontraba.
+        """
+        try:
+            with md.open(encoding='utf-8') as f:
+                for _ in range(3):
+                    line = f.readline()
+                    if not line:
+                        break
+                    if line.startswith('TITULO:'):
+                        return line[len('TITULO:'):].strip()
+        except Exception:
+            pass
+        return ''
+
     def get_meetings(self) -> list:
         """Lista todas las minutas agrupadas por fecha, con conteo de pendientes."""
         pins = self._load_pins()
         meetings = []
         for md in sorted(MINUTES_DIR.glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
             meta = _parse_stem(md.stem)
+            title = self._title_from_content(md) or meta['title']
             actions_path = md.parent / f"{md.stem}_actions.json"
             pending = 0
             has_actions = False
@@ -149,7 +172,7 @@ class AppAPI:
                     pass
             meetings.append({
                 'path':          str(md),
-                'title':         meta['title'],
+                'title':         title,
                 'date':          meta['date'],
                 'time':          meta['time'],
                 'has_actions':   has_actions,
